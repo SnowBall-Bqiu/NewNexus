@@ -47,10 +47,15 @@ try {
         if ($LASTEXITCODE -ne 0) {
             throw "Server build failed for linux/$architecture with exit code $LASTEXITCODE"
         }
-        go build -trimpath -ldflags="-s -w -X main.version=$Version" -o (Join-Path $stage "newnexus-agent") ./cmd/agent
-        if ($LASTEXITCODE -ne 0) {
-            throw "Agent build failed for linux/$architecture with exit code $LASTEXITCODE"
+        foreach ($agentArchitecture in @("amd64", "arm64")) {
+            $env:GOARCH = $agentArchitecture
+            $agentName = "newnexus-agent-linux-$agentArchitecture"
+            go build -trimpath -ldflags="-s -w -X main.version=$Version" -o (Join-Path $stage $agentName) ./cmd/agent
+            if ($LASTEXITCODE -ne 0) {
+                throw "Agent build failed for linux/$agentArchitecture with exit code $LASTEXITCODE"
+            }
         }
+        Copy-Item -LiteralPath (Join-Path $stage "newnexus-agent-linux-$architecture") -Destination (Join-Path $stage "newnexus-agent")
 
         Copy-Item -Recurse -LiteralPath "web\dist" -Destination (Join-Path $stage "web\dist")
         Copy-Item -Recurse -LiteralPath "api" -Destination (Join-Path $stage "api")

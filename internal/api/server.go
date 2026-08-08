@@ -62,7 +62,7 @@ func (s *Server) Router() http.Handler {
 		writeData(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
 	r.Get("/install-agent.sh", s.agentInstallScript)
-	r.Get("/downloads/newnexus-agent-linux-amd64", s.agentDownload)
+	r.Get("/downloads/newnexus-agent-linux-{architecture}", s.agentDownload)
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Get("/auth/status", s.authStatus)
 		api.Post("/auth/setup", s.authSetup)
@@ -932,10 +932,19 @@ func (s *Server) listNodes(w http.ResponseWriter, _ *http.Request) {
 	writeList(w, items, len(items))
 }
 func (s *Server) createNodeEnrollment(w http.ResponseWriter, r *http.Request) {
-	var input domain.ProbeNode
-	if !decode(w, r, &input) {
+	var request struct {
+		domain.ProbeNode
+		Architecture string `json:"architecture"`
+	}
+	if !decode(w, r, &request) {
 		return
 	}
+	architecture, ok := normalizeAgentArchitecture(request.Architecture)
+	if !ok {
+		writeError(w, http.StatusUnprocessableEntity, "agent_architecture_invalid", "Agent 架构仅支持 amd64 或 arm64")
+		return
+	}
+	input := request.ProbeNode
 	code, err := security.RandomToken(18)
 	if err != nil {
 		writeError(w, 500, "token_failed", err.Error())
@@ -952,9 +961,10 @@ func (s *Server) createNodeEnrollment(w http.ResponseWriter, r *http.Request) {
 	}
 	baseURL := strings.TrimRight(s.cfg.PublicURL, "/")
 	manualCommand := fmt.Sprintf("newnexus-agent --server %s --enroll-code %s --name %s --protocols %s", shellQuote(s.cfg.AgentPublicServer), shellQuote(code), shellQuote(input.Name), shellQuote(input.Protocols))
-	installArgs := fmt.Sprintf("--server %s --code %s --name %s --protocols %s --download-url %s", shellQuote(s.cfg.AgentPublicServer), shellQuote(code), shellQuote(input.Name), shellQuote(input.Protocols), shellQuote(baseURL+"/downloads/newnexus-agent-linux-amd64"))
+	downloadURL := fmt.Sprintf("%s/downloads/newnexus-agent-linux-%s", baseURL, architecture)
+	installArgs := fmt.Sprintf("--server %s --code %s --name %s --protocols %s --architecture %s --download-url %s", shellQuote(s.cfg.AgentPublicServer), shellQuote(code), shellQuote(input.Name), shellQuote(input.Protocols), shellQuote("linux-"+architecture), shellQuote(downloadURL))
 	checksum := ""
-	if file, err := os.Open(s.cfg.AgentBinaryPath); err == nil {
+	if file, err := os.Open(s.agentBinaryPath(architecture)); err == nil {
 		hash := sha256.New()
 		if _, err := io.Copy(hash, file); err == nil {
 			checksum = fmt.Sprintf("%x", hash.Sum(nil))
@@ -967,7 +977,7 @@ func (s *Server) createNodeEnrollment(w http.ResponseWriter, r *http.Request) {
 		manualCommand += " --insecure"
 	}
 	installCommand := fmt.Sprintf("curl -fsSL %s | sudo sh -s -- %s", shellQuote(baseURL+"/install-agent.sh"), installArgs)
-	writeData(w, 201, map[string]any{"node": input, "enrollmentCode": code, "command": manualCommand, "installCommand": installCommand, "binarySha256": checksum, "architecture": "linux-amd64"})
+	writeData(w, 201, map[string]any{"node": input, "enrollmentCode": code, "command": manualCommand, "installCommand": installCommand, "binarySha256": checksum, "architecture": "linux-" + architecture})
 }
 
 func (s *Server) agentInstallScript(w http.ResponseWriter, r *http.Request) {
@@ -978,15 +988,43 @@ func (s *Server) agentInstallScript(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) agentDownload(w http.ResponseWriter, r *http.Request) {
-	info, err := os.Stat(s.cfg.AgentBinaryPath)
+	architecture, ok := normalizeAgentArchitecture(chi.URLParam(r, "architecture"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "agent_architecture_unavailable", "不支持该 Agent 架构")
+		return
+	}
+	binaryPath := s.agentBinaryPath(architecture)
+	info, err := os.Stat(binaryPath)
 	if err != nil || info.IsDir() {
-		writeError(w, http.StatusNotFound, "agent_binary_unavailable", "主控未安装 Linux amd64 Agent 二进制")
+		writeError(w, http.StatusNotFound, "agent_binary_unavailable", "主控未安装 Linux "+architecture+" Agent 二进制")
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", `attachment; filename="newnexus-agent-linux-amd64"`)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="newnexus-agent-linux-%s"`, architecture))
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	http.ServeFile(w, r, s.cfg.AgentBinaryPath)
+	http.ServeFile(w, r, binaryPath)
+}
+
+func (s *Server) agentBinaryPath(architecture string) string {
+	if strings.Contains(s.cfg.AgentBinaryPath, "{arch}") {
+		return strings.ReplaceAll(s.cfg.AgentBinaryPath, "{arch}", architecture)
+	}
+	if architecture == "amd64" {
+		return s.cfg.AgentBinaryPath
+	}
+	return ""
+}
+
+func normalizeAgentArchitecture(value string) (string, bool) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "", "amd64", "x86_64", "linux-amd64":
+		return "amd64", true
+	case "arm64", "aarch64", "linux-arm64":
+		return "arm64", true
+	default:
+		return "", false
+	}
 }
 
 func shellQuote(value string) string {

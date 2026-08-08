@@ -92,7 +92,7 @@ newnexus-agent \
 | `NEWNEXUS_GRPC_ADDR` | `:9090` | Agent gRPC 监听地址 |
 | `NEWNEXUS_PUBLIC_URL` | `http://localhost:8080` | 控制台外部地址 |
 | `NEWNEXUS_AGENT_PUBLIC_SERVER` | `localhost:9090` | 一键安装命令使用的公网 gRPC 地址 |
-| `NEWNEXUS_AGENT_BINARY_PATH` | `newnexus-agent` | 主控提供下载的 Linux amd64 Agent 路径 |
+| `NEWNEXUS_AGENT_BINARY_PATH` | `newnexus-agent-linux-{arch}` | 主控提供下载的 Agent 路径模板；`{arch}` 会替换为 `amd64` 或 `arm64` |
 | `NEWNEXUS_AGENT_INSTALL_INSECURE` | `false` | 仅本地开发的一键安装明文 gRPC 开关 |
 | `NEWNEXUS_SECURE_COOKIES` | `false` | TLS 生产环境设为 `true` |
 | `NEWNEXUS_PROBE_INTERVAL` | `30s` | 调度器评估周期 |
@@ -105,7 +105,24 @@ newnexus-agent \
 powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version 0.1.0
 ```
 
-产物输出到 `dist/`，包含 Linux amd64 压缩包与 `SHA256SUMS`。主控的“探测节点”页面会为每个一次性注册码生成可复制的一键安装命令。
+产物输出到 `dist/`，本地脚本生成 Linux amd64 控制端压缩包与 `SHA256SUMS`，包内同时携带 amd64/arm64 Agent。主控的“探测节点”页面可选择目标架构，并为每个一次性注册码生成可复制的一键安装命令。
+
+## 自动发布
+
+在 GitHub 创建并发布 Release 后，`.github/workflows/release.yml` 会从该 Release 的标签构建并上传：
+
+- `newnexus-v<version>-linux-amd64.tar.gz`
+- `newnexus-v<version>-linux-arm64.tar.gz`
+- `SHA256SUMS`
+
+同一工作流还会把 `linux/amd64`、`linux/arm64` 多架构的控制端与 Agent 镜像推送到 GitHub Container Registry：
+
+```bash
+docker pull ghcr.io/snowball-bqiu/newnexus:v0.1.0
+docker pull ghcr.io/snowball-bqiu/newnexus-agent:v0.1.0
+```
+
+正式 Release 会更新 `latest`；标记为 prerelease 的版本只发布版本标签，不覆盖 `latest`。
 
 ## 验证
 

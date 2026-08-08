@@ -57,7 +57,7 @@ paths:
         '422': { description: 无健康候选或凭据不可用 }
   /nodes/enroll:
     post:
-      summary: 创建一次性 Agent 注册码与 Linux amd64 一键安装命令
+      summary: 创建一次性 Agent 注册码与 Linux amd64/arm64 一键安装命令
       responses:
         '201': { description: 注册信息 }
   /routes/{id}/preview:

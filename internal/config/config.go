@@ -60,7 +60,7 @@ func Load() (Config, error) {
 		Version:              env("NEWNEXUS_VERSION", "dev"),
 		ProbeInterval:        interval,
 		AgentPublicServer:    env("NEWNEXUS_AGENT_PUBLIC_SERVER", "localhost:9090"),
-		AgentBinaryPath:      env("NEWNEXUS_AGENT_BINARY_PATH", "newnexus-agent"),
+		AgentBinaryPath:      env("NEWNEXUS_AGENT_BINARY_PATH", "newnexus-agent-linux-{arch}"),
 		AgentInstallInsecure: envBool("NEWNEXUS_AGENT_INSTALL_INSECURE", false),
 	}, nil
 }

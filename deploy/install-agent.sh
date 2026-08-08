@@ -7,10 +7,11 @@ NAME="$(hostname)"
 PROTOCOLS="tcp,http"
 DOWNLOAD_URL=""
 EXPECTED_SHA256=""
+ARCHITECTURE=""
 INSECURE="false"
 
 usage() {
-    echo "Usage: install-agent.sh --server HOST:PORT --code CODE --download-url URL [--name NAME] [--protocols LIST] [--sha256 HASH] [--insecure]"
+    echo "Usage: install-agent.sh --server HOST:PORT --code CODE --download-url URL [--architecture linux-amd64|linux-arm64] [--name NAME] [--protocols LIST] [--sha256 HASH] [--insecure]"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -19,6 +20,7 @@ while [ "$#" -gt 0 ]; do
         --code) CODE="${2:-}"; shift 2 ;;
         --name) NAME="${2:-}"; shift 2 ;;
         --protocols) PROTOCOLS="${2:-}"; shift 2 ;;
+        --architecture) ARCHITECTURE="${2:-}"; shift 2 ;;
         --download-url) DOWNLOAD_URL="${2:-}"; shift 2 ;;
         --sha256) EXPECTED_SHA256="${2:-}"; shift 2 ;;
         --insecure) INSECURE="true"; shift ;;
@@ -36,9 +38,20 @@ if [ -z "$SERVER" ] || [ -z "$CODE" ] || [ -z "$DOWNLOAD_URL" ]; then
     exit 2
 fi
 case "$(uname -m)" in
-    x86_64|amd64) ;;
-    *) echo "This release only supports Linux amd64." >&2; exit 1 ;;
+    x86_64|amd64) DETECTED_ARCHITECTURE="amd64" ;;
+    aarch64|arm64) DETECTED_ARCHITECTURE="arm64" ;;
+    *) echo "This installer only supports Linux amd64 and arm64." >&2; exit 1 ;;
 esac
+case "$ARCHITECTURE" in
+    "") EXPECTED_ARCHITECTURE="$DETECTED_ARCHITECTURE" ;;
+    amd64|x86_64|linux-amd64) EXPECTED_ARCHITECTURE="amd64" ;;
+    arm64|aarch64|linux-arm64) EXPECTED_ARCHITECTURE="arm64" ;;
+    *) echo "Unsupported Agent architecture: $ARCHITECTURE" >&2; exit 2 ;;
+esac
+if [ "$DETECTED_ARCHITECTURE" != "$EXPECTED_ARCHITECTURE" ]; then
+    echo "Agent package architecture $EXPECTED_ARCHITECTURE does not match this host ($DETECTED_ARCHITECTURE)." >&2
+    exit 1
+fi
 for value in "$SERVER" "$CODE" "$NAME" "$PROTOCOLS" "$DOWNLOAD_URL"; do
     case "$value" in
         *'"'*|*'\'*|*'

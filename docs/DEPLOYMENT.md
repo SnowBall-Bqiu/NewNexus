@@ -20,6 +20,8 @@
 newnexus-v0.1.0-linux-amd64/
 ├── newnexus-server
 ├── newnexus-agent
+├── newnexus-agent-linux-amd64
+├── newnexus-agent-linux-arm64
 ├── web/dist/
 ├── api/openapi.yaml
 ├── deploy/
@@ -38,14 +40,14 @@ tar -xzf newnexus-v0.1.0-linux-amd64.tar.gz
 cd newnexus-v0.1.0-linux-amd64
 ```
 
-当前预编译发布包只支持 Linux amd64。
+GitHub Release 同时提供 Linux amd64 与 arm64 控制端部署包。每个包都内置两种 Agent，`newnexus-agent` 是与控制端同架构的便捷副本；主控通过带架构后缀的文件为远程节点提供自动安装。
 
 ### 2.1 创建运行用户与目录
 
 ```bash
 sudo useradd --system --home /var/lib/newnexus --shell /usr/sbin/nologin newnexus
 sudo install -d -o newnexus -g newnexus /opt/newnexus /var/lib/newnexus /etc/newnexus
-sudo install -m 755 newnexus-server newnexus-agent /opt/newnexus/
+sudo install -m 755 newnexus-server newnexus-agent newnexus-agent-linux-* /opt/newnexus/
 sudo cp -a web api docs deploy README.md LICENSE /opt/newnexus/
 sudo chown -R root:root /opt/newnexus
 ```
@@ -68,7 +70,7 @@ NEWNEXUS_DATABASE_DRIVER=sqlite
 NEWNEXUS_DATABASE_URL=/var/lib/newnexus/newnexus.db
 NEWNEXUS_PUBLIC_URL=https://newnexus.example.com
 NEWNEXUS_AGENT_PUBLIC_SERVER=grpc.newnexus.example.com:443
-NEWNEXUS_AGENT_BINARY_PATH=/opt/newnexus/newnexus-agent
+NEWNEXUS_AGENT_BINARY_PATH=/opt/newnexus/newnexus-agent-linux-{arch}
 NEWNEXUS_SECURE_COOKIES=true
 ```
 
@@ -124,10 +126,10 @@ SSE 不应启用响应缓冲；gRPC 入口必须允许 HTTP/2、长连接和至�
 推荐在“探测节点”点击“注册节点”。主控会生成只显示一次的一键安装命令，形式如下：
 
 ```bash
-curl -fsSL 'https://newnexus.example.com/install-agent.sh' | sudo sh -s -- --server 'grpc.newnexus.example.com:443' --code 'ONE_TIME_CODE' --name 'hk-edge-01' --protocols 'tcp,http' --download-url 'https://newnexus.example.com/downloads/newnexus-agent-linux-amd64' --sha256 '...'
+curl -fsSL 'https://newnexus.example.com/install-agent.sh' | sudo sh -s -- --server 'grpc.newnexus.example.com:443' --code 'ONE_TIME_CODE' --name 'hk-edge-01' --protocols 'tcp,http' --architecture 'linux-amd64' --download-url 'https://newnexus.example.com/downloads/newnexus-agent-linux-amd64' --sha256 '...'
 ```
 
-将整条命令复制到目标 Linux amd64 主机执行。脚本会校验架构和 SHA-256，安装低权限 systemd 服务并立即注册。命令含一次性注册码，不要粘贴到公开日志、聊天或工单。
+注册节点时选择 `amd64` 或 `arm64`，再将整条命令复制到对应架构的 Linux 主机执行。脚本会检测主机架构、校验 SHA-256、安装低权限 systemd 服务并立即注册；选择与主机不匹配时会在安装前停止。命令含一次性注册码，不要粘贴到公开日志、聊天或工单。
 
 手动安装方式如下。
 
@@ -175,6 +177,15 @@ docker compose --profile sqlite --profile agent up -d --build
 ```
 
 启动本机 Agent 前，先在控制台生成注册码并填写 `.env`。生产环境同时修改 PostgreSQL 密码、外部 URL 和安全 Cookie 设置。
+
+也可以直接使用 GitHub Container Registry 中由 Release 自动构建的多架构镜像：
+
+```bash
+docker pull ghcr.io/snowball-bqiu/newnexus:v0.1.0
+docker pull ghcr.io/snowball-bqiu/newnexus-agent:v0.1.0
+```
+
+两个镜像清单都包含 `linux/amd64` 与 `linux/arm64`，Docker 会按宿主机架构选择。正式版同步更新 `latest`，预发布版只保留自己的版本标签。
 
 ## 6. 备份、恢复与升级
 

@@ -180,6 +180,8 @@ cd ..
 powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version 0.1.0
 ```
 
+GitHub Release 发布时，`.github/workflows/release.yml` 会分别交叉编译 Linux amd64/arm64 控制端部署包；每个包都包含两种 Agent。工作流汇总 `SHA256SUMS` 并上传到对应 Release，同时通过 Buildx 将多架构控制端与 Agent 镜像推送到 `ghcr.io/snowball-bqiu/newnexus`、`ghcr.io/snowball-bqiu/newnexus-agent`。工作流只使用仓库自带的 `GITHUB_TOKEN`，需要保留仓库 Actions 的 `contents: write` 与 `packages: write` 权限。
+
 浏览器验收至少覆盖 1440px 桌面和 390px 移动端，并检查：首次安装、TOTP、凭据、SaaS、线路发布预览、回滚、键盘焦点、reduced-motion 和横向溢出。
 
 需要真实厂商账户或 PostgreSQL 集群的测试应使用单独环境变量与显式命令，不纳入默认单元测试。
@@ -190,4 +192,4 @@ powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version 0.1.
 - SQLite 不支持多副本。PostgreSQL 已支持运行与迁移，但生产级作业分区、租约压力测试和 100 Agent 基线仍需在目标环境验收。
 - 邮件/Webhook 的完整交付通道、恢复码和 API Key 生命周期仍应在生产启用前按组织策略补齐。
 - Docker 镜像需要可用的 Docker daemon 才能完成实际构建验收。
-- 预编译 Agent 发布目标当前只提供 Linux amd64。
+- Release 部署包与 Agent 支持 Linux amd64/arm64；其他操作系统和 CPU 架构不在首版发布范围内。
