@@ -52,6 +52,15 @@ npm run dev
 
 从 `.env.example` 创建 `.env`，必须设置不可丢失的 `NEWNEXUS_MASTER_KEY`。更换该密钥后，已有厂商凭据将无法解密。
 
+仓库根目录提供两个 Compose 文件：`compose.yaml` 用于从源码构建和本地开发；`docker-compose.yaml` 使用已发布的 GHCR 多架构镜像，并为每个配置行提供中文注释。直接部署镜像时执行：
+
+```bash
+cp .env.example .env
+# 编辑 .env，至少设置 NEWNEXUS_MASTER_KEY 和 POSTGRES_PASSWORD
+docker compose -f docker-compose.yaml pull
+docker compose -f docker-compose.yaml up -d postgres control-plane
+```
+
 ```bash
 # SQLite 单机
 docker compose --profile sqlite up -d --build
