@@ -1,0 +1,145 @@
+openapi: 3.1.0
+info:
+  title: NewNexus API
+  version: 1.0.0
+  description: 自托管 CF 优选、Cloudflare for SaaS 与多 CDN CNAME 线路调度 API。
+servers:
+  - url: /api/v1
+paths:
+  /summary:
+    get:
+      summary: 获取控制台摘要
+      responses:
+        '200': { description: 摘要数据 }
+  /connections:
+    get:
+      summary: 列出厂商连接
+      responses:
+        '200': { description: 连接列表 }
+    post:
+      summary: 创建并验证厂商连接
+      responses:
+        '201': { description: 已创建 }
+  /optimizer/candidates:
+    get:
+      summary: 查询优选候选及评分
+      responses:
+        '200': { description: 候选列表 }
+  /optimizer/hostnames:
+    get:
+      summary: 列出受管优选 A/AAAA 域名
+      responses:
+        '200': { description: 优选域名列表 }
+    post:
+      summary: 创建优选域名 desired 状态
+      responses:
+        '201': { description: 已创建 }
+  /optimizer/hostnames/{id}/preview:
+    post:
+      summary: 预览榜单地址与 DNS 差异
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: A/AAAA 发布预览 }
+  /optimizer/hostnames/{id}/publish:
+    post:
+      summary: 发布并回读确认优选 A/AAAA
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: 已发布并确认 }
+        '422': { description: 无健康候选或凭据不可用 }
+  /nodes/enroll:
+    post:
+      summary: 创建一次性 Agent 注册码与 Linux amd64 一键安装命令
+      responses:
+        '201': { description: 注册信息 }
+  /routes/{id}/preview:
+    post:
+      summary: 预览 CNAME 线路发布差异
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: 发布预览 }
+  /routes/{id}/lines:
+    post:
+      summary: 添加厂商线路及首个 CNAME 目标
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '201': { description: 更新后的线路规则 }
+        '409': { description: 厂商线路代码重复 }
+        '422': { description: 厂商能力或目标校验失败 }
+  /routes/{id}/lines/{lineId}/targets:
+    post:
+      summary: 向线路添加 CNAME 目标
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: lineId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '201': { description: 已添加目标 }
+  /routes/{id}/lines/{lineId}/targets/{targetId}:
+    put:
+      summary: 更新或停用 CNAME 目标
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: lineId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: targetId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: 已更新目标 }
+  /routes/{id}/apply:
+    post:
+      summary: 发布 CNAME 线路变更
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: 发布结果 }
+  /saas/hostnames:
+    get:
+      summary: 列出 Cloudflare for SaaS 自定义主机名
+      responses:
+        '200': { description: 主机名列表 }
+    post:
+      summary: 创建 Cloudflare for SaaS 自定义主机名
+      responses:
+        '201': { description: 主机名状态 }
+  /saas/hostnames/{id}/sync:
+    post:
+      summary: 同步 Cloudflare 状态并调和验证 TXT 与业务 CNAME
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: 同步后的主机名与 DNS 自动化状态 }

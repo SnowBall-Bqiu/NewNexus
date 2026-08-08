@@ -1,0 +1,25 @@
+[Unit]
+Description=NewNexus network scheduling control plane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=newnexus
+Group=newnexus
+WorkingDirectory=/opt/newnexus
+EnvironmentFile=/etc/newnexus/newnexus.env
+ExecStart=/opt/newnexus/newnexus-server
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=20s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/newnexus
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

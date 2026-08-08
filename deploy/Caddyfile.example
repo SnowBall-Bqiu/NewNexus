@@ -1,0 +1,11 @@
+newnexus.example.com {
+	encode zstd gzip
+	reverse_proxy /api/* control-plane:8080
+	reverse_proxy /healthz control-plane:8080
+	reverse_proxy /readyz control-plane:8080
+	reverse_proxy control-plane:8080
+}
+
+grpc.newnexus.example.com {
+	reverse_proxy h2c://control-plane:9090
+}

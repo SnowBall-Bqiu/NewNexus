@@ -1,0 +1,23 @@
+[Unit]
+Description=NewNexus remote probe agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=newnexus-agent
+Group=newnexus-agent
+EnvironmentFile=/etc/newnexus/agent.env
+ExecStart=/usr/local/bin/newnexus-agent
+Restart=always
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/newnexus-agent
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
