@@ -1,29 +1,14 @@
 name: newnexus # 定义 Compose 项目名，便于统一识别容器、网络和数据卷
-services: # 声明本项目需要运行的全部容器服务
-  postgres: # 定义 PostgreSQL 生产数据库服务
-    image: postgres:17-alpine # 使用体积较小的 PostgreSQL 17 Alpine 官方镜像
-    container_name: newnexus-postgres # 固定数据库容器名称，方便执行运维命令
-    restart: unless-stopped # 容器异常退出时自动重启，手动停止时保持停止
-    environment: # 向 PostgreSQL 初始化过程传递数据库参数
-      POSTGRES_DB: newnexus # 首次启动时创建名为 newnexus 的数据库
-      POSTGRES_USER: newnexus # 首次启动时创建名为 newnexus 的数据库用户
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?请在.env中设置POSTGRES_PASSWORD}" # 从 .env 读取数据库密码，缺失时拒绝启动
-    volumes: # 声明数据库需要持久化的数据目录
-      - postgres-data:/var/lib/postgresql/data # 将 PostgreSQL 数据文件保存到命名卷
-    healthcheck: # 定义数据库就绪检查，控制端会等待检查通过
-      test: ["CMD-SHELL", "pg_isready -U newnexus -d newnexus"] # 使用 pg_isready 检查目标数据库能否接受连接
-      interval: 10s # 每 10 秒执行一次数据库健康检查
-      timeout: 5s # 单次健康检查超过 5 秒即判定失败
-      retries: 10 # 连续失败 10 次后将容器标记为不健康
-      start_period: 20s # 首次启动的前 20 秒不累计健康检查失败次数
-  control-plane: # 定义 NewNexus 控制端、调度器和管理界面服务
-    image: ghcr.io/snowball-bqiu/newnexus:latest # 使用 GHCR 中最新的 amd64/arm64 多架构控制端镜像
+
+services:
+  control-plane:
+    image: ghcr.io/snowball-bqiu/newnexus:latest # 使用 GHCR 中最新的 amd64/arm64 多架构控制端镜像，具体标签前往GHCR查。
     container_name: newnexus-control-plane # 固定控制端容器名称，方便查看日志和状态
     restart: unless-stopped # 控制端异常退出时自动重启
-    depends_on: # 声明控制端依赖数据库就绪
-      postgres: # 引用上面定义的 PostgreSQL 服务
+    depends_on:
+      postgres:
         condition: service_healthy # 仅在 PostgreSQL 健康检查通过后启动控制端
-    environment: # 向 NewNexus 控制端传递运行配置
+    environment:
       NEWNEXUS_MASTER_KEY: "${NEWNEXUS_MASTER_KEY:?请在.env中设置NEWNEXUS_MASTER_KEY}" # 注入不可丢失的凭据加密主密钥
       NEWNEXUS_DATABASE_DRIVER: postgres # 指定生产数据库驱动为 PostgreSQL
       NEWNEXUS_DATABASE_URL: "postgres://newnexus:${POSTGRES_PASSWORD:?请在.env中设置POSTGRES_PASSWORD}@postgres:5432/newnexus?sslmode=disable" # 通过 Compose 内网连接 PostgreSQL
@@ -44,23 +29,36 @@ services: # 声明本项目需要运行的全部容器服务
       timeout: 5s # 单次控制端检查最多等待 5 秒
       retries: 5 # 连续失败 5 次后将控制端标记为不健康
       start_period: 20s # 给数据库迁移和服务启动预留 20 秒
-  agent: # 定义可选的本机 Docker 探测 Agent
-    image: ghcr.io/snowball-bqiu/newnexus-agent:latest # 使用 GHCR 中最新的 amd64/arm64 多架构 Agent 镜像
-    container_name: newnexus-agent # 固定本机 Agent 容器名称
-    profiles: ["agent"] # 默认不启动，只有显式启用 agent profile 时才运行
-    restart: unless-stopped # Agent 断线或异常退出后自动重启
-    depends_on: # 声明本机 Agent 依赖控制端就绪
-      control-plane: # 引用上面定义的控制端服务
-        condition: service_healthy # 仅在控制端健康检查通过后启动 Agent
-    command: # 覆盖 Agent 启动参数并连接 Compose 内网中的控制端
-      - "--server=control-plane:9090" # 通过服务名访问控制端的内部 gRPC 端口
-      - "--enroll-code=${NEWNEXUS_AGENT_ENROLL_CODE:-create-code-in-console}" # 使用控制台生成的一次性注册码完成首次注册
-      - "--name=${NEWNEXUS_AGENT_NAME:-local-docker-agent}" # 设置控制台中显示的本机 Agent 名称
-      - "--protocols=${NEWNEXUS_AGENT_PROTOCOLS:-tcp,http}" # 允许 Agent 执行 TCP 和 HTTP 探测
-      - "--state=/state/agent-state.json" # 将节点长期凭据写入持久化状态文件
-      - "--insecure" # 仅因 Compose 内网使用明文 gRPC，远程公网 Agent 不应使用此参数
-    volumes: # 声明 Agent 凭据状态需要持久化
-      - agent-state:/state # 将 Agent 注册凭据保存到命名卷，重启后无需重新注册
-volumes: # 声明本项目使用的全部命名卷
-  postgres-data: # 保存 PostgreSQL 数据库文件，删除容器不会删除数据
-  agent-state: # 保存可选本机 Agent 的节点 ID 和长期凭据
+  postgres:
+    image: postgres:17-alpine
+    container_name: newnexus-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: newnexus
+      POSTGRES_USER: newnexus
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?请在.env中设置POSTGRES_PASSWORD}"
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+    healthcheck: # 数据库就绪检查，控制端会等待检查通过
+      test: ["CMD-SHELL", "pg_isready -U newnexus -d newnexus"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+#  agent: # 定义可选的本机 Docker 探测 Agent
+#    image: ghcr.io/snowball-bqiu/newnexus-agent:latest # 使用 GHCR 中最新的 amd64/arm64 多架构 Agent 镜像
+#   container_name: newnexus-agent # 固定本机 Agent 容器名称
+#   profiles: ["agent"] # 默认不启动，只有显式启用 agent profile 时才运行
+#   restart: unless-stopped # Agent 断线或异常退出后自动重启
+#   depends_on: # 声明本机 Agent 依赖控制端就绪
+#     control-plane: # 引用上面定义的控制端服务
+#       condition: service_healthy # 仅在控制端健康检查通过后启动 Agent
+#   command: # 覆盖 Agent 启动参数并连接 Compose 内网中的控制端
+#     - "--server=control-plane:9090" # 通过服务名访问控制端的内部 gRPC 端口
+#     - "--enroll-code=${NEWNEXUS_AGENT_ENROLL_CODE:-create-code-in-console}" # 使用控制台生成的一次性注册码完成首次注册
+#     - "--name=${NEWNEXUS_AGENT_NAME:-local-docker-agent}" # 设置控制台中显示的本机 Agent 名称
+#     - "--protocols=${NEWNEXUS_AGENT_PROTOCOLS:-tcp,http}" # 允许 Agent 执行 TCP 和 HTTP 探测
+#     - "--state=/state/agent-state.json" # 将节点长期凭据写入持久化状态文件
+#     - "--insecure" # 仅因 Compose 内网使用明文 gRPC，远程公网 Agent 不应使用此参数
+#   volumes: # 声明 Agent 凭据状态需要持久化
+#     - ./agent-state:/state # 将 Agent 注册凭据保存到命名卷，重启后无需重新注册
