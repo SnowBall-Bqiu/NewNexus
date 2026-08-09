@@ -5,6 +5,10 @@ import { Button, Field } from '../components/ui';
 
 interface Props { status?: { setupRequired: boolean; authenticated: boolean }; onAuthenticated: () => void }
 
+export function authPayload(setup: boolean, username: string, password: string, code: string) {
+  return setup ? { username, password } : { username, password, code };
+}
+
 export function LoginPage({ status, onAuthenticated }: Props) {
   const setup = status?.setupRequired ?? false;
   const [username, setUsername] = useState('admin');
@@ -14,7 +18,8 @@ export function LoginPage({ status, onAuthenticated }: Props) {
   const [loading, setLoading] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault(); setLoading(true); setError('');
-    try { await api(setup ? '/auth/setup' : '/auth/login', { method: 'POST', body: JSON.stringify({ username, password, code }) }); onAuthenticated(); }
+    const payload = authPayload(setup, username, password, code);
+    try { await api(setup ? '/auth/setup' : '/auth/login', { method: 'POST', body: JSON.stringify(payload) }); onAuthenticated(); }
     catch (caught) { setError(caught instanceof Error ? caught.message : '登录失败'); }
     finally { setLoading(false); }
   }
