@@ -1,64 +1,20 @@
-import type { ButtonHTMLAttributes, HTMLAttributes, PropsWithChildren, ReactNode } from 'react';
-import { Dialog } from '@base-ui-components/react/dialog';
-import { Tooltip } from '@base-ui-components/react/tooltip';
-import { X } from 'lucide-react';
-import clsx from 'clsx';
-
-export function Button({ className, variant = 'secondary', size = 'md', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'danger'; size?: 'sm' | 'md' | 'icon' }) {
-  return <button className={clsx('button', `button--${variant}`, `button--${size}`, className)} {...props} />;
-}
-
-export function IconButton({ label, className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
-  return <Tooltip.Root>
-    <Tooltip.Trigger className={clsx('button', 'button--ghost', 'button--icon', className)} aria-label={label} {...props} />
-    <Tooltip.Portal>
-      <Tooltip.Positioner className="tooltip-positioner" sideOffset={7}>
-        <Tooltip.Popup className="tooltip-popup">{label}</Tooltip.Popup>
-      </Tooltip.Positioner>
-    </Tooltip.Portal>
-  </Tooltip.Root>;
-}
-
-export function Badge({ status, children }: PropsWithChildren<{ status: string }>) {
-  const label = children ?? statusLabels[status] ?? status;
-  return <span className={clsx('badge', `badge--${status}`)}><span className="badge__dot" />{label}</span>;
-}
-
-const statusLabels: Record<string, string> = { healthy: '健康', connected: '已连接', active: '已生效', online: '在线', applied: '已发布', synced: '已同步', warning: '注意', degraded: '退化', recovering: '恢复中', pending: '等待中', pending_validation: '待验证', offline: '离线', error: '异常', failed: '失败', unknown: '未知', preview: '仅预览', open: '处理中', acknowledged: '已确认' };
-
-export function PageHeader({ title, description, actions }: { title: string; description: string; actions?: ReactNode }) {
-  return <header className="page-header"><div><h1>{title}</h1><p>{description}</p></div>{actions && <div className="page-header__actions">{actions}</div>}</header>;
-}
-
-export function EmptyState({ icon, title, description, action }: { icon: ReactNode; title: string; description: string; action?: ReactNode }) {
-  return <div className="empty-state"><div className="empty-state__icon">{icon}</div><h3>{title}</h3><p>{description}</p>{action}</div>;
-}
-
-export function DialogShell({ open, onOpenChange, title, description, children, footer, size = 'md' }: PropsWithChildren<{ open: boolean; onOpenChange: (open: boolean) => void; title: string; description?: string; footer?: ReactNode; size?: 'sm' | 'md' | 'lg' }>) {
-  return <Dialog.Root open={open} onOpenChange={onOpenChange}>
-    <Dialog.Portal>
-      <Dialog.Backdrop className="dialog-backdrop" />
-      <Dialog.Viewport className="dialog-viewport">
-        <Dialog.Popup className={clsx('dialog-popup', `dialog-popup--${size}`)}>
-          <div className="dialog-header"><div><Dialog.Title className="dialog-title">{title}</Dialog.Title>{description && <Dialog.Description className="dialog-description">{description}</Dialog.Description>}</div><Dialog.Close className="dialog-close" aria-label="关闭"><X size={17} /></Dialog.Close></div>
-          <div className="dialog-body">{children}</div>
-          {footer && <div className="dialog-footer">{footer}</div>}
-        </Dialog.Popup>
-      </Dialog.Viewport>
-    </Dialog.Portal>
-  </Dialog.Root>;
-}
-
-export function Field({ label, hint, required, children }: PropsWithChildren<{ label: string; hint?: string; required?: boolean }>) {
-  return <label className="field"><span className="field__label">{label}{required && <span aria-hidden="true"> *</span>}</span>{children}{hint && <span className="field__hint">{hint}</span>}</label>;
-}
-
-export function Segmented({ value, options, onChange, label }: { value: string; options: { value: string; label: string }[]; onChange: (value: string) => void; label: string }) {
-  return <div className="segmented" role="radiogroup" aria-label={label}>{options.map((option) => <button key={option.value} type="button" role="radio" aria-checked={value === option.value} className={value === option.value ? 'is-active' : ''} onClick={() => onChange(option.value)}>{option.label}</button>)}</div>;
-}
-
-export function Skeleton({ width = '100%', height = 16 }: { width?: string | number; height?: number }) { return <span className="skeleton" style={{ width, height }} />; }
-export function Section({ title, description, actions, children, className }: PropsWithChildren<{ title?: string; description?: string; actions?: ReactNode; className?: string }>) { return <section className={clsx('section', className)}>{title && <div className="section__header"><div><h2>{title}</h2>{description && <p>{description}</p>}</div>{actions}</div>}{children}</section>; }
-export function Stat({ label, value, detail, tone = 'default' }: { label: string; value: ReactNode; detail: ReactNode; tone?: string }) { return <div className={clsx('stat', `stat--${tone}`)}><span className="stat__label">{label}</span><strong>{value}</strong><span className="stat__detail">{detail}</span></div>; }
+import { Children, isValidElement, useEffect, useState, type ChangeEvent, type ComponentProps, type FormEvent, type HTMLAttributes, type InputHTMLAttributes, type PropsWithChildren, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { Badge as KumoBadge, Button as KumoButton, Dialog, Empty, Field as KumoField, Input, InputArea, Select, SkeletonLine, Text } from '@cloudflare/kumo';
+import { Copy, X } from './icons';
+import { toast } from '../lib/toast';
+import { statusLabels, statusVariant } from '../lib/status';
+export { statusVariant } from '../lib/status';
+export function StatusBadge({ status, children }: { status: string; children?: ReactNode }) { return <KumoBadge variant={statusVariant(status)} appearance="dot">{children ?? statusLabels[status] ?? status}</KumoBadge>; }
+export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) { return <header className="page-header"><div><Text variant="heading1" as="h1">{title}</Text>{description && <Text variant="secondary" as="p">{description}</Text>}</div>{actions && <div className="page-header-actions">{actions}</div>}</header>; }
+export function Section({ title, description, actions, children }: PropsWithChildren<{ title?: string; description?: string; actions?: ReactNode }>) { return <section className="section">{title && <header className="section-header"><div><Text variant="heading2" as="h2">{title}</Text>{description && <Text variant="secondary" as="p">{description}</Text>}</div>{actions && <div className="section-actions">{actions}</div>}</header>}{children}</section>; }
+export function Button(props: ComponentProps<typeof KumoButton>) { return <KumoButton {...props} />; }
+export function IconButton({ label, children, ...props }: { label: string; children: ReactNode } & ComponentProps<typeof KumoButton>) { return <KumoButton {...props} shape="square" size="sm" variant="ghost" aria-label={label} title={label}>{children}</KumoButton>; }
+export function EmptyState({ title, description, action }: { icon?: ReactNode; title: string; description?: string; action?: ReactNode }) { return <Empty size="sm" title={title} description={description} contents={action} />; }
+export function QueryState({ loading, error, children }: PropsWithChildren<{ loading: boolean; error: Error | null; }>) { if (loading) return <div className="loading-state" aria-busy="true"><SkeletonLine /><SkeletonLine /><SkeletonLine /></div>; if (error) return <EmptyState title="载入失败" description={error.message} />; return <>{children}</>; }
+export function StatGrid({ items }: { items: { label: string; value: ReactNode; detail: ReactNode }[] }) { return <div className="stat-grid">{items.map((item) => <div className="stat-item" key={item.label}><Text variant="secondary" size="sm">{item.label}</Text><Text variant="heading2" as="strong">{item.value}</Text><Text variant="secondary" size="sm">{item.detail}</Text></div>)}</div>; }
+export function Field({ label, hint, required, children }: PropsWithChildren<{ label: string; hint?: string; required?: boolean }>) { return <KumoField label={label} description={hint} required={required}>{adaptControl(children, label)}</KumoField>; }
+function adaptControl(children: ReactNode, label: string) { if (!isValidElement(children) || typeof children.type !== 'string') return children; if (children.type === 'input') { const props = { ...children.props as InputHTMLAttributes<HTMLInputElement>, 'aria-label': children.props['aria-label'] ?? label }; delete (props as Record<string, unknown>).size; return <Input {...props as ComponentProps<typeof Input>} />; } if (children.type === 'textarea') { const props = { ...children.props as TextareaHTMLAttributes<HTMLTextAreaElement>, 'aria-label': children.props['aria-label'] ?? label }; return <InputArea {...props as ComponentProps<typeof InputArea>} />; } if (children.type === 'select') { const props = children.props as SelectHTMLAttributes<HTMLSelectElement>; return <Select aria-label={label} value={typeof props.value === 'string' ? props.value : undefined} onValueChange={(value) => props.onChange?.({ target: { value: value ?? '' } } as ChangeEvent<HTMLSelectElement>)}>{Children.toArray(props.children).map((child, index) => isValidElement(child) && child.type === 'option' ? <Select.Option key={String(child.props.value ?? index)} value={String(child.props.value ?? '')}>{child.props.children}</Select.Option> : child)}</Select>; } return children; }
+export function DialogShell({ open, onOpenChange, title, description, children, footer }: PropsWithChildren<{ open: boolean; onOpenChange: (open: boolean) => void; title: string; description?: string; footer?: ReactNode }>) { return <Dialog.Root open={open} onOpenChange={onOpenChange}><Dialog size="base" className="dialog-shell"><div className="dialog-head"><div><Dialog.Title>{title}</Dialog.Title>{description && <Dialog.Description>{description}</Dialog.Description>}</div><Dialog.Close render={<KumoButton shape="square" size="sm" variant="ghost" aria-label="关闭" />}><X /></Dialog.Close></div><div className="dialog-body">{children}</div>{footer && <div className="dialog-foot">{footer}</div>}</Dialog></Dialog.Root>; }
+export function DeleteDialog({ open, onOpenChange, name, resource, onDelete, busy = false }: { open: boolean; onOpenChange: (open: boolean) => void; name: string; resource: string; onDelete: () => Promise<void> | void; busy?: boolean }) { const [value, setValue] = useState(''); useEffect(() => { if (!open) setValue(''); }, [open]); const canDelete = value === name; async function submit(event: FormEvent) { event.preventDefault(); if (canDelete) await onDelete(); } return <DialogShell open={open} onOpenChange={onOpenChange} title={`删除${resource}`} description={`此操作无法撤销。请输入“${name}”确认。`} footer={<><Button onClick={() => onOpenChange(false)}>取消</Button><Button variant="destructive" disabled={!canDelete || busy} onClick={() => { void onDelete(); }}>{busy ? '正在删除…' : `删除${resource}`}</Button></>}><form onSubmit={submit} className="stack"><code className="copy-code" onClick={() => { void navigator.clipboard.writeText(name); toast.info('名称已复制'); }}>{name}<Copy size={15} /></code><Field label={`输入${resource}名称`} required><input value={value} onChange={(event) => setValue(event.target.value)} autoComplete="off" /></Field></form></DialogShell>; }
 export function InlineCode({ children }: PropsWithChildren) { return <code className="inline-code">{children}</code>; }
-export function Divider(props: HTMLAttributes<HTMLHRElement>) { return <hr className="divider" {...props} />; }
+export type { HTMLAttributes };

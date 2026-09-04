@@ -47,13 +47,11 @@ try {
         if ($LASTEXITCODE -ne 0) {
             throw "Server build failed for linux/$architecture with exit code $LASTEXITCODE"
         }
-        foreach ($agentArchitecture in @("amd64", "arm64")) {
-            $env:GOARCH = $agentArchitecture
-            $agentName = "newnexus-agent-linux-$agentArchitecture"
-            go build -trimpath -ldflags="-s -w -X main.version=$Version" -o (Join-Path $stage $agentName) ./cmd/agent
-            if ($LASTEXITCODE -ne 0) {
-                throw "Agent build failed for linux/$agentArchitecture with exit code $LASTEXITCODE"
-            }
+        $env:GOARCH = $architecture
+        $agentName = "newnexus-agent-linux-$architecture"
+        go build -trimpath -ldflags="-s -w -X main.version=$Version" -o (Join-Path $stage $agentName) ./cmd/agent
+        if ($LASTEXITCODE -ne 0) {
+            throw "Agent build failed for linux/$architecture with exit code $LASTEXITCODE"
         }
         Copy-Item -LiteralPath (Join-Path $stage "newnexus-agent-linux-$architecture") -Destination (Join-Path $stage "newnexus-agent")
 
@@ -61,7 +59,8 @@ try {
         Copy-Item -Recurse -LiteralPath "api" -Destination (Join-Path $stage "api")
         Copy-Item -Recurse -LiteralPath "deploy" -Destination (Join-Path $stage "deploy")
         Copy-Item -Recurse -LiteralPath "docs" -Destination (Join-Path $stage "docs")
-        Copy-Item -LiteralPath "README.md", "LICENSE" -Destination $stage
+        Copy-Item -Recurse -LiteralPath "proto" -Destination (Join-Path $stage "proto")
+        Copy-Item -LiteralPath "README.md", "LICENSE", "docker-compose.yaml", ".env.example" -Destination $stage
 
         $archive = Join-Path $output "$name.tar.gz"
         if (Test-Path -LiteralPath $archive) {

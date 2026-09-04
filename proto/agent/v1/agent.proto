@@ -1,0 +1,136 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "github.com/SnowBall-Bqiu/NewNexus/internal/agentproto";
+
+import "google/protobuf/struct.proto";
+
+// Struct remains the wire type so rc.2 agents can roll through an upgraded
+// control plane. The envelope messages below freeze the supported field names.
+service AgentService {
+  rpc Enroll(google.protobuf.Struct) returns (google.protobuf.Struct);
+  rpc Connect(stream google.protobuf.Struct) returns (stream google.protobuf.Struct);
+}
+
+// AgentServiceV1 is the typed protocol for current Agents. AgentService above
+// remains registered during the rc.2 compatibility window.
+service AgentServiceV1 {
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+  rpc Connect(stream ClientEnvelope) returns (stream ServerEnvelope);
+}
+
+message EnrollRequest {
+  string code = 1;
+  string node_id = 2;
+  string recovery_code = 3;
+  string name = 4;
+  repeated string protocols = 5;
+  string version = 6;
+  string platform = 7;
+  string protocol_version = 8;
+  repeated string features = 9;
+}
+
+message EnrollResponse {
+  string node_id = 1;
+  string token = 2;
+  string token_expires_at = 3;
+  string protocol_version = 4;
+  int32 heartbeat_seconds = 5;
+  repeated string enabled_features = 6;
+}
+
+message ClientEnvelope {
+  string type = 1;
+  string protocol_version = 2;
+  repeated string features = 3;
+  Heartbeat heartbeat = 4;
+  TaskAck task_ack = 5;
+  ResultBatch result_batch = 6;
+  CredentialRotationAck credential_rotation_ack = 7;
+}
+
+message ServerEnvelope {
+  string type = 1;
+  string protocol_version = 2;
+  repeated string enabled_features = 3;
+  ProbeTask task = 4;
+  ResultAck result_ack = 5;
+  CredentialRotation credential_rotation = 6;
+  string rotation_committed_id = 7;
+  string rotation_cancelled_id = 8;
+  string node_id = 9;
+  string server_time = 10;
+}
+
+message Heartbeat {
+  string observed_at = 1;
+  int32 queue_depth = 2;
+  int64 outbox_bytes = 3;
+}
+
+message ProbeTask {
+  string task_id = 1;
+  string job_id = 2;
+  string candidate_id = 3;
+  string route_target_id = 4;
+  string mode = 5;
+  string address = 6;
+  int32 port = 7;
+  string url = 8;
+  string host = 9;
+  string sni = 10;
+  string method = 11;
+  map<string, string> headers = 12;
+  repeated int32 expected_statuses = 13;
+  string expected_contains = 14;
+  int32 timeout_ms = 15;
+  int64 max_bytes = 16;
+  int32 attempt = 17;
+  int32 lease_seconds = 18;
+  repeated int32 allowed_ports = 19;
+}
+
+message TaskAck {
+  string task_id = 1;
+  string observed_at = 2;
+}
+
+message ProbeResult {
+  string task_id = 1;
+  string job_id = 2;
+  string candidate_id = 3;
+  string route_target_id = 4;
+  string mode = 5;
+  bool success = 6;
+  string error_code = 7;
+  double tcp_ms = 8;
+  double tls_ms = 9;
+  double ttfb_ms = 10;
+  double total_ms = 11;
+  int64 bytes_read = 12;
+  double download_bps = 13;
+  int32 status_code = 14;
+  string observed_at = 15;
+}
+
+message ResultBatch {
+  int64 cursor = 1;
+  repeated ProbeResult results = 2;
+}
+
+message ResultAck {
+  int64 cursor = 1;
+  repeated string job_ids = 2;
+}
+
+message CredentialRotation {
+  string rotation_id = 1;
+  string token = 2;
+  string expires_at = 3;
+}
+
+message CredentialRotationAck {
+  string rotation_id = 1;
+}

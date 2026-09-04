@@ -1,0 +1,13 @@
+failed to load config from D:\allfiles\www\NewNexus\web\vite.config.ts
+error when starting dev server:
+Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:420:11)
+    at Object.spawn (node:child_process:787:9)
+    at ensureServiceIsRunning (D:\allfiles\www\NewNexus\web\node_modules\esbuild\lib\main.js:1975:29)
+    at build (D:\allfiles\www\NewNexus\web\node_modules\esbuild\lib\main.js:1873:26)
+    at bundleConfigFile (file:///D:/allfiles/www/NewNexus/web/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:66845:24)
+    at loadConfigFromFile (file:///D:/allfiles/www/NewNexus/web/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:66815:27)
+    at resolveConfig (file:///D:/allfiles/www/NewNexus/web/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:66416:30)
+    at _createServer (file:///D:/allfiles/www/NewNexus/web/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:63015:24)
+    at createServer (file:///D:/allfiles/www/NewNexus/web/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:63012:10)
+    at CAC.<anonymous> (file:///D:/allfiles/www/NewNexus/web/node_modules/vite/dist/node/cli.js:736:26)

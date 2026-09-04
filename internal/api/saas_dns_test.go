@@ -50,8 +50,12 @@ func (a *recordAdapter) ApplyChanges(_ context.Context, _ provider.Credentials, 
 func TestEnsureSaaSDNSRecordIsIdempotent(t *testing.T) {
 	adapter := &recordAdapter{records: []provider.Record{{ID: "txt", Name: "_cf.example.com.", Type: "TXT", Value: `"token"`}}}
 	desired := provider.Record{Name: "_cf.example.com", Type: "TXT", Value: "token", TTL: 60}
-	if err := ensureSaaSDNSRecord(context.Background(), adapter, nil, provider.Zone{Name: "example.com"}, desired, false); err != nil {
+	_, changed, err := ensureSaaSDNSRecord(context.Background(), adapter, nil, provider.Zone{Name: "example.com"}, desired, false)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("an existing identical record must not be claimed as managed")
 	}
 	if len(adapter.applied) != 0 {
 		t.Fatalf("idempotent TXT reconciliation applied changes: %#v", adapter.applied)
@@ -61,8 +65,12 @@ func TestEnsureSaaSDNSRecordIsIdempotent(t *testing.T) {
 func TestEnsureSaaSDNSRecordUpdatesCNAME(t *testing.T) {
 	adapter := &recordAdapter{records: []provider.Record{{ID: "cname", Name: "www.example.com", Type: "CNAME", Value: "old.example.net"}}}
 	desired := provider.Record{Name: "www.example.com", Type: "CNAME", Value: "target.example.net", TTL: 60}
-	if err := ensureSaaSDNSRecord(context.Background(), adapter, nil, provider.Zone{Name: "example.com"}, desired, true); err != nil {
+	_, changed, err := ensureSaaSDNSRecord(context.Background(), adapter, nil, provider.Zone{Name: "example.com"}, desired, true)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("updated CNAME was not reported as changed")
 	}
 	if len(adapter.applied) != 1 || adapter.applied[0].Operation != "update" {
 		t.Fatalf("expected one CNAME update, got %#v", adapter.applied)
@@ -72,7 +80,7 @@ func TestEnsureSaaSDNSRecordUpdatesCNAME(t *testing.T) {
 func TestEnsureSaaSDNSRecordRejectsCNAMEConflict(t *testing.T) {
 	adapter := &recordAdapter{records: []provider.Record{{ID: "address", Name: "www.example.com", Type: "A", Value: "192.0.2.1"}}}
 	desired := provider.Record{Name: "www.example.com", Type: "CNAME", Value: "target.example.net", TTL: 60}
-	if err := ensureSaaSDNSRecord(context.Background(), adapter, nil, provider.Zone{Name: "example.com"}, desired, true); err == nil {
+	if _, _, err := ensureSaaSDNSRecord(context.Background(), adapter, nil, provider.Zone{Name: "example.com"}, desired, true); err == nil {
 		t.Fatal("expected an A/CNAME conflict")
 	}
 	if len(adapter.applied) != 0 {

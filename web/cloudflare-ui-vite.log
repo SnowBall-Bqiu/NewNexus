@@ -1,0 +1,181 @@
+
+> newnexus-web@0.1.0 dev
+> vite --port 15174
+
+
+  VITE v5.4.21  ready in 415 ms
+
+  ➜  Local:   http://127.0.0.1:15174/
+  ➜  press h + enter to show help
+18:44:21 [vite] hmr update /src/main.tsx
+18:44:21 [vite] hmr invalidate /src/main.tsx Could not Fast Refresh ("true" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+18:44:21 [vite] page reload src/main.tsx
+18:44:21 [vite] hmr update /src/pages/OverviewPage.tsx
+18:44:22 [vite] hmr update /src/styles.css
+18:48:38 [vite] hmr update /src/tool-theme.css
+18:58:58 [vite] hmr update /src/App.tsx
+18:58:59 [vite] hmr invalidate /src/App.tsx Could not Fast Refresh ("navigationGroups" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+18:58:59 [vite] hmr update /src/main.tsx
+18:58:59 [vite] hmr invalidate /src/main.tsx Could not Fast Refresh ("true" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+18:58:59 [vite] page reload src/main.tsx
+18:58:59 [vite] hmr update /src/components/ui.tsx
+18:58:59 [vite] hmr invalidate /src/components/ui.tsx Could not Fast Refresh ("statusBadgeVariant" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+18:58:59 [vite] hmr update /src/components/ThemeSwitcher.tsx, /src/pages/LoginPage.tsx, /src/pages/ConnectionsPage.tsx, /src/components/QueryState.tsx, /src/pages/NodesPage.tsx, /src/pages/ReleasesPage.tsx, /src/pages/SaaSPage.tsx, /src/pages/ProjectsPage.tsx, /src/pages/OverviewPage.tsx
+18:58:59 [vite] hmr invalidate /src/components/ThemeSwitcher.tsx Could not Fast Refresh ("useTheme" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+18:58:59 [vite] hmr update /src/App.tsx, /src/pages/OverviewPage.tsx
+18:58:59 [vite] hmr invalidate /src/pages/LoginPage.tsx Could not Fast Refresh ("authPayload" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+18:58:59 [vite] hmr update /src/App.tsx
+18:58:59 [vite] hmr invalidate /src/App.tsx Could not Fast Refresh ("navigationGroups" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+18:58:59 [vite] hmr update /src/main.tsx
+18:58:59 [vite] hmr invalidate /src/main.tsx Could not Fast Refresh ("true" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+18:58:59 [vite] page reload src/main.tsx
+18:59:00 [vite] hmr update /src/main.tsx
+18:59:00 [vite] hmr invalidate /src/main.tsx Could not Fast Refresh ("true" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+18:59:00 [vite] page reload src/main.tsx
+19:00:47 [vite] hmr update /src/pages/ConnectionsPage.tsx
+19:01:51 [vite] hmr update /src/tool-theme.css
+19:01:58 [vite] hmr update /src/pages/OverviewPage.tsx
+19:03:17 [vite] hmr update /src/pages/NodesPage.tsx
+19:03:35 [vite] hmr update /src/pages/OverviewPage.tsx
+19:03:48 [vite] hmr update /src/pages/ReleasesPage.tsx
+19:04:31 [vite] hmr update /src/pages/SaaSPage.tsx
+19:04:54 [vite] hmr update /src/pages/ReleasesPage.tsx
+19:05:49 [vite] hmr update /src/pages/ProjectsPage.tsx
+19:07:11 [vite] hmr update /src/tool-theme.css
+19:09:48 [vite] hmr update /src/pages/LoginPage.tsx
+19:10:52 [vite] hmr update /src/pages/LoginPage.tsx
+19:10:52 [vite] hmr invalidate /src/pages/LoginPage.tsx Could not Fast Refresh ("authPayload" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+19:10:52 [vite] hmr update /src/App.tsx
+19:10:52 [vite] hmr invalidate /src/App.tsx Could not Fast Refresh ("navigationGroups" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+19:10:52 [vite] hmr update /src/main.tsx
+19:10:52 [vite] hmr invalidate /src/main.tsx Could not Fast Refresh ("true" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+19:10:52 [vite] page reload src/main.tsx
+19:12:24 [vite] hmr update /src/pages/ConnectionsPage.tsx
+19:12:25 [vite] hmr update /src/pages/NodesPage.tsx
+19:12:26 [vite] hmr update /src/pages/ProjectsPage.tsx
+19:13:12 [vite] hmr update /src/tool-theme.css
+19:14:46 [vite] hmr update /src/pages/SaaSPage.tsx
+19:17:47 [vite] hmr update /src/pages/OverviewPage.tsx
+19:17:50 [vite] hmr update /src/pages/LoginPage.tsx
+19:17:51 [vite] hmr invalidate /src/pages/LoginPage.tsx Could not Fast Refresh ("authPayload" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+19:17:51 [vite] hmr update /src/App.tsx
+19:17:51 [vite] hmr invalidate /src/App.tsx Could not Fast Refresh ("navigationGroups" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+19:17:51 [vite] hmr update /src/main.tsx
+19:17:51 [vite] hmr invalidate /src/main.tsx Could not Fast Refresh ("true" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+19:17:51 [vite] page reload src/main.tsx
+19:20:10 [vite] hmr update /src/tool-theme.css
+19:24:55 [vite] hmr update /src/pages/ConnectionsPage.tsx
+19:24:56 [vite] hmr update /src/pages/ProjectsPage.tsx
+19:24:57 [vite] hmr update /src/pages/LoginPage.tsx
+19:24:57 [vite] hmr invalidate /src/pages/LoginPage.tsx Could not Fast Refresh ("authPayload" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+19:24:57 [vite] hmr update /src/App.tsx
+19:24:57 [vite] hmr invalidate /src/App.tsx Could not Fast Refresh ("navigationGroups" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+19:24:57 [vite] hmr update /src/main.tsx
+19:24:57 [vite] hmr invalidate /src/main.tsx Could not Fast Refresh ("true" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+19:24:57 [vite] page reload src/main.tsx
+19:30:54 [vite] hmr update /src/components/ui.tsx
+19:30:54 [vite] hmr invalidate /src/components/ui.tsx Could not Fast Refresh (export removed)
+19:30:54 [vite] hmr update /src/components/ThemeSwitcher.tsx, /src/pages/ConnectionsPage.tsx, /src/components/QueryState.tsx, /src/pages/NodesPage.tsx, /src/pages/SaaSPage.tsx, /src/pages/ProjectsPage.tsx, /src/pages/OverviewPage.tsx, /src/pages/LoginPage.tsx
+19:30:54 [vite] hmr invalidate /src/components/ThemeSwitcher.tsx Could not Fast Refresh ("useTheme" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+19:30:54 [vite] hmr update /src/App.tsx, /src/pages/OverviewPage.tsx
+19:30:54 [vite] hmr invalidate /src/pages/LoginPage.tsx Could not Fast Refresh ("authPayload" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+19:30:54 [vite] hmr update /src/App.tsx
+19:30:54 [vite] hmr invalidate /src/App.tsx Could not Fast Refresh ("navigationGroups" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+19:30:54 [vite] hmr update /src/main.tsx
+19:30:54 [vite] hmr invalidate /src/main.tsx Could not Fast Refresh ("true" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+19:30:54 [vite] page reload src/main.tsx
+19:31:12 [vite] hmr update /src/tool-theme.css
+19:36:28 [vite] hmr update /src/tool-theme.css
+19:38:28 [vite] hmr update /src/pages/OverviewPage.tsx
+19:38:48 [vite] hmr update /src/pages/OverviewPage.tsx
+19:39:36 [vite] hmr update /src/pages/OverviewPage.tsx
+19:41:09 [vite] page reload index.html
+19:41:27 [vite] hmr update /src/App.tsx
+19:41:27 [vite] hmr update /src/App.tsx, /src/components/ThemeSwitcher.tsx, /src/components/ui.tsx, /src/pages/ConnectionsPage.tsx, /src/components/QueryState.tsx, /src/pages/NodesPage.tsx, /src/pages/SaaSPage.tsx, /src/pages/ProjectsPage.tsx, /src/pages/OverviewPage.tsx, /src/pages/LoginPage.tsx
+19:41:27 [vite] hmr update /src/main.tsx
+19:41:27 [vite] hmr update /src/tool-theme.css
+19:41:27 [vite] hmr update /src/components/QueryState.tsx
+19:41:27 [vite] hmr update /src/components/ThemeSwitcher.tsx
+19:41:27 [vite] hmr update /src/components/ui.tsx
+19:41:27 [vite] hmr update /src/App.tsx, /src/pages/ConnectionsPage.tsx, /src/pages/NodesPage.tsx, /src/pages/SaaSPage.tsx, /src/pages/ProjectsPage.tsx, /src/pages/OverviewPage.tsx, /src/pages/LoginPage.tsx
+19:41:27 [vite] hmr update /src/App.tsx
+19:41:27 [vite] hmr update /src/main.tsx, /src/components/ThemeSwitcher.tsx
+19:41:27 [vite] hmr update /src/main.tsx, /src/components/ui.tsx, /src/pages/ConnectionsPage.tsx, /src/pages/NodesPage.tsx, /src/pages/SaaSPage.tsx, /src/pages/ProjectsPage.tsx, /src/pages/LoginPage.tsx
+19:41:27 [vite] hmr update /src/pages/ConnectionsPage.tsx
+19:41:27 [vite] hmr update /src/pages/LoginPage.tsx
+19:41:27 [vite] hmr update /src/pages/NodesPage.tsx
+19:41:27 [vite] hmr update /src/pages/OverviewPage.tsx
+19:41:27 [vite] hmr update /src/pages/ProjectsPage.tsx
+19:41:27 [vite] hmr update /src/pages/ReleasesPage.tsx
+19:41:27 [vite] hmr update /src/pages/SaaSPage.tsx
+19:41:27 [vite] changed tsconfig file detected: D:\allfiles\www\NewNexus\web\tsconfig.json - Clearing cache and forcing full-reload to ensure TypeScript is compiled with updated config values.
+19:41:27 [vite] vite.config.ts changed, restarting server...
+19:41:27 [vite] server restarted.
+19:58:13 [vite] hmr update /src/App.tsx, /src/components/ThemeSwitcher.tsx, /src/pages/LoginPage.tsx, /src/components/ui.tsx, /src/pages/OverviewPage.tsx, /src/components/QueryState.tsx, /src/pages/ProjectsPage.tsx, /src/pages/SaaSPage.tsx, /src/pages/OptimizerPage.tsx, /src/pages/RoutesPage.tsx, /src/pages/NodesPage.tsx, /src/pages/ReleasesPage.tsx, /src/pages/JobsPage.tsx, /src/pages/AlertsPage.tsx, /src/pages/AuditPage.tsx, /src/pages/ConnectionsPage.tsx, /src/pages/SettingsPage.tsx
+19:58:13 [vite] hmr update /src/components/QueryState.tsx
+19:58:13 [vite] hmr update /src/components/ThemeSwitcher.tsx
+19:58:13 [vite] hmr update /src/components/ui.tsx
+19:58:13 [vite] hmr update /src/App.tsx, /src/pages/LoginPage.tsx, /src/pages/OverviewPage.tsx, /src/pages/ProjectsPage.tsx, /src/pages/SaaSPage.tsx, /src/pages/OptimizerPage.tsx, /src/pages/RoutesPage.tsx, /src/pages/NodesPage.tsx, /src/pages/ReleasesPage.tsx, /src/pages/JobsPage.tsx, /src/pages/AlertsPage.tsx, /src/pages/AuditPage.tsx, /src/pages/ConnectionsPage.tsx, /src/pages/SettingsPage.tsx
+19:58:13 [vite] hmr update /src/App.tsx
+19:58:13 [vite] hmr update /src/main.tsx, /src/pages/LoginPage.tsx, /src/pages/ProjectsPage.tsx, /src/pages/SaaSPage.tsx, /src/pages/OptimizerPage.tsx, /src/pages/RoutesPage.tsx, /src/pages/NodesPage.tsx, /src/pages/ReleasesPage.tsx, /src/pages/JobsPage.tsx, /src/pages/AlertsPage.tsx, /src/pages/ConnectionsPage.tsx, /src/pages/SettingsPage.tsx
+19:58:13 [vite] hmr update /src/main.tsx
+19:58:13 [vite] hmr update /src/pages/AlertsPage.tsx
+19:58:13 [vite] hmr update /src/pages/AuditPage.tsx
+19:58:13 [vite] hmr update /src/pages/ConnectionsPage.tsx
+19:58:13 [vite] hmr update /src/pages/JobsPage.tsx
+19:58:13 [vite] hmr update /src/pages/LoginPage.tsx
+19:58:13 [vite] hmr update /src/pages/NodesPage.tsx
+19:58:13 [vite] hmr update /src/pages/OptimizerPage.tsx
+19:58:13 [vite] hmr update /src/pages/OverviewPage.tsx
+19:58:13 [vite] hmr update /src/pages/ProjectsPage.tsx
+19:58:13 [vite] hmr update /src/pages/ReleasesPage.tsx
+19:58:13 [vite] hmr update /src/pages/SaaSPage.tsx
+19:58:13 [vite] hmr update /src/pages/RoutesPage.tsx
+19:58:13 [vite] hmr update /src/pages/SettingsPage.tsx
+19:58:14 [vite] hmr update /src/App.tsx
+19:58:14 [vite] hmr update /src/main.tsx
+19:58:14 [vite] hmr update /src/tool-theme.css
+20:01:35 [vite] page reload src/lib/api.ts
+20:01:36 [vite] page reload src/lib/theme.ts
+20:01:36 [vite] page reload src/lib/toast.ts
+20:01:37 [vite] page reload src/components/icons.ts
+20:02:35 [vite] hmr update /src/components/ThemeSwitcher.tsx
+20:02:35 [vite] hmr update /src/components/ui.tsx
+20:03:51 [vite] hmr update /src/components/ui.tsx
+20:04:47 [vite] hmr update /src/App.tsx
+20:05:06 [vite] hmr update /src/App.tsx
+20:06:03 [vite] hmr update /src/main.tsx
+20:06:03 [vite] hmr update /src/pages/LoginPage.tsx
+20:06:04 [vite] hmr update /src/pages/OverviewPage.tsx
+20:11:01 [vite] hmr update /src/tool-theme.css
+20:11:42 [vite] hmr update /src/tool-theme.css
+20:14:14 [vite] page reload src/components/icons.ts
+20:14:15 [vite] hmr update /src/App.tsx, /src/pages/LoginPage.tsx, /src/pages/OverviewPage.tsx, /src/pages/ConsolePages.tsx
+20:14:16 [vite] hmr update /src/App.tsx
+20:15:52 [vite] hmr update /src/components/ui.tsx
+20:15:52 [vite] hmr invalidate /src/components/ui.tsx Could not Fast Refresh ("statusVariant" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+20:15:52 [vite] hmr update /src/pages/OverviewPage.tsx, /src/pages/ConsolePages.tsx
+20:17:23 [vite] hmr update /src/App.tsx
+20:18:20 [vite] hmr update /src/App.tsx
+20:22:48 [vite] hmr update /src/App.tsx
+20:22:48 [vite] hmr update /src/components/ui.tsx
+20:22:48 [vite] hmr invalidate /src/components/ui.tsx Could not Fast Refresh ("statusVariant" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+20:22:48 [vite] hmr update /src/pages/OverviewPage.tsx, /src/pages/ConsolePages.tsx
+20:22:49 [vite] hmr update /src/pages/LoginPage.tsx
+20:22:49 [vite] hmr update /src/pages/OverviewPage.tsx
+20:23:10 [vite] hmr update /src/pages/ConsolePages.tsx
+20:25:18 [vite] hmr update /src/pages/LoginPage.tsx, /src/pages/OverviewPage.tsx, /src/pages/ConsolePages.tsx, /src/App.tsx
+20:25:19 [vite] hmr update /src/pages/LoginPage.tsx
+20:25:20 [vite] hmr update /src/pages/ConsolePages.tsx
+20:25:57 [vite] hmr update /src/pages/ConsolePages.tsx
+20:25:57 [vite] hmr update /src/pages/LoginPage.tsx
+20:29:01 [vite] hmr update /src/App.tsx
+20:39:36 [vite] hmr update /src/components/ui.tsx
+20:39:36 [vite] hmr invalidate /src/components/ui.tsx Could not Fast Refresh ("statusVariant" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+20:39:36 [vite] hmr update /src/pages/OverviewPage.tsx, /src/pages/ConsolePages.tsx
+21:06:03 [vite] hmr update /src/pages/LoginPage.tsx
+21:06:38 [vite] hmr update /src/pages/LoginPage.tsx
+21:07:01 [vite] hmr update /src/tool-theme.css
+21:08:33 [vite] hmr update /src/pages/LoginPage.tsx
+21:09:42 [vite] hmr update /src/App.tsx
+21:10:39 [vite] hmr update /src/App.tsx

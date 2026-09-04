@@ -1,10 +1,16 @@
 package routing
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/SnowBall-Bqiu/NewNexus/internal/config"
 	"github.com/SnowBall-Bqiu/NewNexus/internal/domain"
+	"github.com/SnowBall-Bqiu/NewNexus/internal/events"
 	"github.com/SnowBall-Bqiu/NewNexus/internal/provider"
+	"github.com/SnowBall-Bqiu/NewNexus/internal/store"
 )
 
 func TestActiveTargetsUsesFirstHealthyPriorityGroup(t *testing.T) {
@@ -16,6 +22,79 @@ func TestActiveTargetsUsesFirstHealthyPriorityGroup(t *testing.T) {
 	active := activeTargets(targets)
 	if len(active) != 1 || active[0].Name != "backup" {
 		t.Fatalf("expected backup priority group, got %#v", active)
+	}
+}
+
+func TestAutomaticEvaluationSkipsSamplePausedLine(t *testing.T) {
+	database, err := store.Open(config.Config{DatabaseDriver: "sqlite", DatabaseURL: filepath.Join(t.TempDir(), "route.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	route := domain.Route{Name: "route", Hostname: "www.example.com", PublishMode: "automatic", SwitchMode: "availability", Status: "healthy"}
+	if err := database.DB.Create(&route).Error; err != nil {
+		t.Fatal(err)
+	}
+	line := domain.RouteLine{RouteID: route.ID, Alias: "电信", ActivePriority: 10, AutoSwitchPaused: true, PauseReason: "样本不足", Status: "healthy"}
+	if err := database.DB.Create(&line).Error; err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	targets := []domain.RouteTarget{
+		{RouteLineID: line.ID, Name: "primary", CNAME: "primary.example.net", Priority: 10, Weight: 100, Enabled: true, Health: "unhealthy", LastCheckedAt: &now},
+		{RouteLineID: line.ID, Name: "backup", CNAME: "backup.example.net", Priority: 20, Weight: 100, Enabled: true, Health: "healthy", LastCheckedAt: &now},
+	}
+	if err := database.DB.Create(&targets).Error; err != nil {
+		t.Fatal(err)
+	}
+	service := New(database, nil, nil, events.NewBroker())
+	published := 0
+	if err := service.EvaluateAutomaticRoutesWith(context.Background(), func(string) error { published++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DB.First(&line, "id = ?", line.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if published != 0 || line.ActivePriority != 10 {
+		t.Fatalf("sample-paused line was switched: published=%d line=%#v", published, line)
+	}
+}
+
+func TestRaiseAlertHonorsActiveSilenceAndReopensExpiredSilence(t *testing.T) {
+	database, err := store.Open(config.Config{DatabaseDriver: "sqlite", DatabaseURL: filepath.Join(t.TempDir(), "alerts.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	service := New(database, nil, nil, events.NewBroker())
+	service.raiseAlert("critical", "route", "目标不可用", "first", "route_line", "line-1")
+	var alert domain.Alert
+	if err := database.DB.First(&alert, "resource_id = ?", "line-1").Error; err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().UTC().Add(time.Hour)
+	if err := database.DB.Model(&alert).Updates(map[string]any{"status": "silenced", "silenced_until": future}).Error; err != nil {
+		t.Fatal(err)
+	}
+	service.raiseAlert("critical", "route", "目标不可用", "still failing", "route_line", "line-1")
+	if err := database.DB.First(&alert, "id = ?", alert.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if alert.Status != "silenced" || alert.SilencedUntil == nil {
+		t.Fatalf("active silence was cleared by a repeated condition: %#v", alert)
+	}
+	past := time.Now().UTC().Add(-time.Minute)
+	if err := database.DB.Model(&alert).Update("silenced_until", past).Error; err != nil {
+		t.Fatal(err)
+	}
+	alertID := alert.ID
+	service.raiseAlert("critical", "route", "目标不可用", "still failing", "route_line", "line-1")
+	alert = domain.Alert{}
+	if err := database.DB.First(&alert, "id = ?", alertID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if alert.Status != "open" || alert.SilencedUntil != nil {
+		t.Fatalf("expired silence was not reopened: %#v", alert)
 	}
 }
 

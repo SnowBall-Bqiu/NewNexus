@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | SQLite 单机 | 最多约 5 个 Agent、5000 个候选、100 条线路规则 | 只运行一个控制面和调度实例 |
 | PostgreSQL | 生产环境、更高写入量、后续横向扩展 | 需要独立备份和数据库运维 |
-| Docker Compose | 快速安装或容器平台 | 仍需为 HTTP 与 gRPC 配置 TLS 入口 |
+| Docker Compose | 快速安装或容器平台 | 挂载 gRPC 证书目录，并为 HTTP 配置 TLS 入口 |
 
 无论使用哪种模式，Cloudflare、DNSPod 和阿里云仍是权威 DNS。NewNexus 不提供权威 DNS，也不使用 Cloudflare Load Balancing。
 
@@ -21,7 +21,6 @@ newnexus-v0.1.0-linux-amd64/
 ├── newnexus-server
 ├── newnexus-agent
 ├── newnexus-agent-linux-amd64
-├── newnexus-agent-linux-arm64
 ├── web/dist/
 ├── api/openapi.yaml
 ├── deploy/
@@ -40,7 +39,7 @@ tar -xzf newnexus-v0.1.0-linux-amd64.tar.gz
 cd newnexus-v0.1.0-linux-amd64
 ```
 
-GitHub Release 同时提供 Linux amd64 与 arm64 控制端部署包。每个包都内置两种 Agent，`newnexus-agent` 是与控制端同架构的便捷副本；主控通过带架构后缀的文件为远程节点提供自动安装。
+GitHub Release 同时提供 Linux amd64 与 arm64 控制端部署包。每个包内置同架构 Agent，`newnexus-agent` 是便捷副本；本地交付脚本只生成 amd64 包。GHCR 控制端镜像仍内置 amd64/arm64 Agent 下载文件。
 
 ### 2.1 创建运行用户与目录
 
@@ -69,12 +68,21 @@ NEWNEXUS_MASTER_KEY=生成的32字节Base64密钥
 NEWNEXUS_DATABASE_DRIVER=sqlite
 NEWNEXUS_DATABASE_URL=/var/lib/newnexus/newnexus.db
 NEWNEXUS_PUBLIC_URL=https://newnexus.example.com
-NEWNEXUS_AGENT_PUBLIC_SERVER=grpc.newnexus.example.com:443
+NEWNEXUS_AGENT_PUBLIC_SERVER=grpc.newnexus.example.com:9090
 NEWNEXUS_AGENT_BINARY_PATH=/opt/newnexus/newnexus-agent-linux-{arch}
+NEWNEXUS_GRPC_TLS_CERT_FILE=/etc/newnexus/tls/grpc.crt
+NEWNEXUS_GRPC_TLS_KEY_FILE=/etc/newnexus/tls/grpc.key
+NEWNEXUS_GRPC_ALLOW_H2C=false
+NEWNEXUS_AGENT_TLS_SHA256=可选覆盖值，留空时从gRPC叶证书自动计算
 NEWNEXUS_SECURE_COOKIES=true
+NEWNEXUS_ENABLE_HSTS=true
+NEWNEXUS_PROVIDER_MAX_RETRIES=3
+NEWNEXUS_PROVIDER_MIN_INTERVAL=100ms
 ```
 
 主密钥用于加密厂商凭据。丢失或更换后，现有 Cloudflare、DNSPod、阿里云和 SMTP 凭据无法解密。
+
+将与 `NEWNEXUS_AGENT_PUBLIC_SERVER` 主机名匹配的完整证书链保存为 `/etc/newnexus/tls/grpc.crt`，私钥保存为 `/etc/newnexus/tls/grpc.key`，并将目录权限限制为控制端运行用户可读。主控会从叶证书自动计算 SHA-256 指纹，所有新生成的 Agent 安装命令都会携带该指纹。
 
 安装 systemd 服务：
 
@@ -86,7 +94,7 @@ sudo systemctl status newnexus
 curl http://127.0.0.1:8080/readyz
 ```
 
-首次打开控制台后创建唯一管理员，并立即启用 TOTP。
+首次打开控制台后创建唯一管理员并离线保存恢复码。TOTP 默认可选，但生产界面会持续提示未启用风险。
 
 ### 2.3 配置 PostgreSQL 控制端
 
@@ -97,16 +105,16 @@ NEWNEXUS_DATABASE_DRIVER=postgres
 NEWNEXUS_DATABASE_URL=postgres://newnexus:强密码@127.0.0.1:5432/newnexus?sslmode=require
 ```
 
-如果 PostgreSQL 与控制端在同一受控主机且没有数据库 TLS，可按实际安全边界使用 `sslmode=disable`。控制端启动时自动执行 GORM 迁移；升级前仍必须先备份数据库。
+如果 PostgreSQL 与控制端在同一受控主机且没有数据库 TLS，可按实际安全边界使用 `sslmode=disable`。控制端启动时自动执行版本化迁移；升级前仍必须先备份数据库。原始探测样本在 PostgreSQL 中按 UTC 日期分区，启动和五分钟维护任务会预建未来分区；`probe_sample_receipts` 独立保存全局 `job_id` 幂等回执。
 
 ## 3. TLS 与反向代理
 
-HTTP 控制台默认监听 `:8080`，Agent gRPC 默认监听 `:9090`。生产环境建议只让反向代理访问这两个端口，并分别配置域名：
+HTTP 控制台默认监听 `:8080`，Agent gRPC 默认监听 `:9090`。生产默认要求 gRPC 控制端直接加载 TLS 证书；REST 建议由反向代理终止 TLS：
 
 - `newnexus.example.com` 转发 HTTP、REST 和 SSE 到 `127.0.0.1:8080`。
-- `grpc.newnexus.example.com` 使用 HTTP/2 长连接转发到明文 h2c `127.0.0.1:9090`。
+- `grpc.newnexus.example.com` 直接解析到主控的 TLS gRPC 端口，防火墙只允许受管 Agent 网络访问。
 
-Caddy 示例位于 `deploy/Caddyfile.example`。预编译包直接部署时，将示例中的 `control-plane` 改为 `127.0.0.1`：
+Caddy 示例位于 `deploy/Caddyfile.example`，默认只代理控制台：
 
 ```caddyfile
 newnexus.example.com {
@@ -114,10 +122,11 @@ newnexus.example.com {
     reverse_proxy 127.0.0.1:8080
 }
 
-grpc.newnexus.example.com {
-    reverse_proxy h2c://127.0.0.1:9090
-}
 ```
+
+若必须让同机反向代理终止 gRPC TLS，只能让控制端明文监听明确绑定到回环或字面量私网 IP，并同时设置 `NEWNEXUS_GRPC_TLS_CERT_FILE=`、`NEWNEXUS_GRPC_TLS_KEY_FILE=`、`NEWNEXUS_GRPC_ALLOW_H2C=true`。`0.0.0.0`、`::`、公网 IP 和生产默认 `:9090` 都会被拒绝启动。然后才可在受信任的同机代理中使用 `h2c://127.0.0.1:9090`。
+
+反向代理终止 HTTP TLS 时，必须把代理来源网段写入 `NEWNEXUS_TRUSTED_PROXY_CIDRS`。只有可信来源提交的 `X-Forwarded-Proto: https` 才会启用 HSTS，外部客户端伪造该请求头不会改变安全策略。
 
 SSE 不应启用响应缓冲；gRPC 入口必须允许 HTTP/2、长连接和至少 4 MiB 消息。
 
@@ -126,10 +135,20 @@ SSE 不应启用响应缓冲；gRPC 入口必须允许 HTTP/2、长连接和至�
 推荐在“探测节点”点击“注册节点”。主控会生成只显示一次的一键安装命令，形式如下：
 
 ```bash
-curl -fsSL 'https://newnexus.example.com/install-agent.sh' | sudo sh -s -- --server 'grpc.newnexus.example.com:443' --code 'ONE_TIME_CODE' --name 'hk-edge-01' --protocols 'tcp,http' --architecture 'linux-amd64' --download-url 'https://newnexus.example.com/downloads/newnexus-agent-linux-amd64' --sha256 '...'
+curl -fsSL 'https://newnexus.example.com/install-agent.sh' | sudo sh -s -- --server 'grpc.newnexus.example.com:9090' --code 'ONE_TIME_CODE' --name 'hk-edge-01' --protocols 'tcp,http' --architecture 'linux-amd64' --download-url 'https://newnexus.example.com/downloads/newnexus-agent-linux-amd64' --sha256 '...' --tls-sha256 '...'
 ```
 
 注册节点时选择 `amd64` 或 `arm64`，再将整条命令复制到对应架构的 Linux 主机执行。脚本会检测主机架构、校验 SHA-256、安装低权限 systemd 服务并立即注册；选择与主机不匹配时会在安装前停止。命令含一次性注册码，不要粘贴到公开日志、聊天或工单。
+
+升级和卸载 Agent：
+
+```bash
+curl -fsSL 'https://newnexus.example.com/install-agent.sh' | sudo sh -s -- --upgrade --download-url 'https://newnexus.example.com/downloads/newnexus-agent-linux-amd64' --sha256 '...'
+curl -fsSL 'https://newnexus.example.com/install-agent.sh' | sudo sh -s -- --uninstall
+# 同时删除节点状态和 outbox 时显式增加 --purge
+```
+
+安装器支持 `--tls-sha256` 固定公网 gRPC 证书指纹；控制端加载内置 TLS 时会自动把实际叶证书指纹加入命令。生产下载默认只允许 HTTPS。重复执行安装或升级是幂等的，旧环境文件会先备份。长期凭据过期后，可在节点行生成短时一次性恢复码；Agent 只有在服务端明确返回凭据过期时才会消费该恢复码，被撤销节点不会自动恢复。
 
 手动安装方式如下。
 
@@ -165,15 +184,18 @@ NEWNEXUS_AGENT_STATE=/var/lib/newnexus-agent/state.json
 cp .env.example .env
 openssl rand -base64 32
 # 将结果写入 .env 的 NEWNEXUS_MASTER_KEY
+# 将受信任 CA 签发、且 SAN 匹配 gRPC 域名的证书链和私钥放入下列路径
+install -m 644 /path/to/fullchain.pem deploy/tls/grpc.crt
+install -m 600 /path/to/private.key deploy/tls/grpc.key
 
 # SQLite
-docker compose --profile sqlite up -d --build
+docker compose -f docker-compose.yaml --profile sqlite up -d
 
 # PostgreSQL
-docker compose --profile postgres up -d --build
+docker compose -f docker-compose.yaml --profile postgres up -d
 
 # SQLite 加本机 Agent
-docker compose --profile sqlite --profile agent up -d --build
+docker compose -f docker-compose.yaml --profile sqlite --profile agent up -d
 ```
 
 启动本机 Agent 前，先在控制台生成注册码并填写 `.env`。生产环境同时修改 PostgreSQL 密码、外部 URL 和安全 Cookie 设置。
@@ -188,6 +210,8 @@ docker pull ghcr.io/snowball-bqiu/newnexus-agent:v0.1.0
 两个镜像清单都包含 `linux/amd64` 与 `linux/arm64`，Docker 会按宿主机架构选择。正式版同步更新 `latest`，预发布版只保留自己的版本标签。
 
 ## 6. 备份、恢复与升级
+
+完整的恢复演练、RPO/RTO 检查表和容器命令见 [`BACKUP_RESTORE.md`](BACKUP_RESTORE.md)，跨版本升级与回退见 [`UPGRADE.md`](UPGRADE.md)。
 
 SQLite 一致性备份：
 

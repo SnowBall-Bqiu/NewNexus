@@ -1,8 +1,12 @@
 package store
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"log/slog"
+	"os"
+	"reflect"
 	"time"
 
 	"github.com/SnowBall-Bqiu/NewNexus/internal/config"
@@ -12,6 +16,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"gorm.io/gorm/schema"
 )
 
 type Store struct {
@@ -29,7 +34,8 @@ func Open(cfg config.Config) (*Store, error) {
 	default:
 		return nil, fmt.Errorf("unsupported database driver %q", cfg.DatabaseDriver)
 	}
-	db, err := gorm.Open(dialector, &gorm.Config{Logger: logger.Default.LogMode(logger.Warn)})
+	gormLogger := logger.New(log.New(os.Stdout, "", log.LstdFlags), logger.Config{SlowThreshold: time.Second, LogLevel: logger.Warn, IgnoreRecordNotFoundError: true, Colorful: false})
+	db, err := gorm.Open(dialector, &gorm.Config{Logger: gormLogger})
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -57,25 +63,337 @@ func registerCallbacks(db *gorm.DB) error {
 		if field == nil {
 			return
 		}
-		value, zero := field.ValueOf(tx.Statement.Context, tx.Statement.ReflectValue)
-		if zero || value == "" {
-			_ = field.Set(tx.Statement.Context, tx.Statement.ReflectValue, uuid.NewString())
+		value := reflect.Indirect(tx.Statement.ReflectValue)
+		if value.Kind() == reflect.Slice || value.Kind() == reflect.Array {
+			for index := 0; index < value.Len(); index++ {
+				setUUIDField(tx, field, value.Index(index))
+			}
+			return
 		}
+		setUUIDField(tx, field, value)
 	})
 }
 
-func (s *Store) Migrate() error {
-	models := []any{
-		&domain.Admin{}, &domain.Session{}, &domain.APIKey{},
-		&domain.Connection{}, &domain.Project{}, &domain.SaaSZone{}, &domain.CustomHostname{},
-		&domain.CandidateSource{}, &domain.Candidate{}, &domain.OptimizedHostname{}, &domain.ProbeProfile{}, &domain.ProbeNode{}, &domain.ProbeSample{},
-		&domain.Route{}, &domain.RouteLine{}, &domain.RouteTarget{}, &domain.Release{},
-		&domain.Alert{}, &domain.AuditEvent{}, &domain.Setting{},
+func setUUIDField(tx *gorm.DB, field *schema.Field, value reflect.Value) {
+	value = reflect.Indirect(value)
+	if !value.IsValid() || value.Kind() != reflect.Struct {
+		return
 	}
-	if err := s.DB.AutoMigrate(models...); err != nil {
-		return fmt.Errorf("migrate database: %w", err)
+	current, zero := field.ValueOf(tx.Statement.Context, value)
+	if zero || current == "" {
+		_ = field.Set(tx.Statement.Context, value, uuid.NewString())
+	}
+}
+
+func (s *Store) Migrate() error {
+	if err := s.DB.AutoMigrate(&domain.SchemaMigration{}); err != nil {
+		return fmt.Errorf("create migration table: %w", err)
+	}
+	migrations := []struct {
+		version int64
+		name    string
+		apply   func(*gorm.DB) error
+	}{
+		{2026080901, "rc3_foundation", migrateRC3Foundation},
+		{2026080902, "agent_reliability", func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&domain.ProbeNode{}, &domain.AgentTask{})
+		}},
+		{2026080903, "saas_cutover_approval", func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&domain.CustomHostname{})
+		}},
+		{2026080904, "safe_totp_rebinding", func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&domain.Admin{})
+		}},
+		{2026080905, "deduplicate_active_agent_tasks", migrateAgentTaskUniqueness},
+		{2026080906, "route_sample_safety_state", func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&domain.RouteLine{})
+		}},
+		{2026080907, "postgres_probe_sample_partitions", migrateProbeSamplePartitions},
+		{2026080908, "normalize_saas_zone_column", migrateSaaSZoneColumn},
+		{2026080909, "project_avatar", migrateProjectAvatar},
+		{2026080910, "production_reliability_hardening", migrateProductionReliabilityHardening},
+		{2026080911, "cursor_pagination_indexes", migrateCursorPaginationIndexes},
+	}
+	for _, migration := range migrations {
+		var count int64
+		if err := s.DB.Model(&domain.SchemaMigration{}).Where("version = ?", migration.version).Count(&count).Error; err != nil {
+			return fmt.Errorf("read migration %d: %w", migration.version, err)
+		}
+		if count > 0 {
+			continue
+		}
+		if err := s.DB.Transaction(func(tx *gorm.DB) error {
+			if err := migration.apply(tx); err != nil {
+				return err
+			}
+			return tx.Create(&domain.SchemaMigration{Version: migration.version, Name: migration.name, AppliedAt: time.Now().UTC()}).Error
+		}); err != nil {
+			return fmt.Errorf("apply migration %d (%s): %w", migration.version, migration.name, err)
+		}
+		slog.Info("database migration applied", "version", migration.version, "name", migration.name)
 	}
 	return nil
+}
+
+func migrateProductionReliabilityHardening(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&domain.ProbeNode{}, &domain.CustomHostname{}, &domain.Job{}, &domain.JobExecutionLease{}); err != nil {
+		return err
+	}
+	var releases []domain.Release
+	if err := tx.Order("route_id ASC, version ASC, created_at ASC, id ASC").Find(&releases).Error; err != nil {
+		return err
+	}
+	nextVersion := make(map[string]int)
+	for index := range releases {
+		release := &releases[index]
+		if release.Version <= nextVersion[release.RouteID] {
+			release.Version = nextVersion[release.RouteID] + 1
+			if err := tx.Model(release).Update("version", release.Version).Error; err != nil {
+				return err
+			}
+		}
+		nextVersion[release.RouteID] = release.Version
+	}
+	return tx.AutoMigrate(&domain.Release{})
+}
+
+func migrateCursorPaginationIndexes(tx *gorm.DB) error {
+	statements := []string{
+		`CREATE INDEX IF NOT EXISTS idx_projects_created_id ON projects (created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_connections_created_id ON connections (created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_saas_zones_created_id ON saa_s_zones (created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_custom_hostnames_created_id ON custom_hostnames (created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_candidate_sources_created_id ON candidate_sources (created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_candidates_created_id ON candidates (created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_candidates_score_address_id ON candidates (score DESC, address, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_routes_created_id ON routes (created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_releases_created_id ON releases (created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_alerts_created_id ON alerts (created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_events_created_id ON audit_events (created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_jobs_created_id ON jobs (created_at, id)`,
+	}
+	for _, statement := range statements {
+		if err := tx.Exec(statement).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateProjectAvatar(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&domain.Project{}); err != nil {
+		return err
+	}
+	return tx.Model(&domain.Project{}).
+		Where("avatar = '' OR avatar IS NULL").
+		Update("avatar", gorm.Expr("SUBSTR(name, 1, 1)")).Error
+}
+
+func migrateSaaSZoneColumn(tx *gorm.DB) error {
+	hasLegacyColumn := tx.Migrator().HasColumn("custom_hostnames", "saa_s_zone_id")
+	if err := tx.AutoMigrate(&domain.CustomHostname{}); err != nil {
+		return err
+	}
+	if !hasLegacyColumn {
+		return nil
+	}
+	return tx.Exec(`UPDATE custom_hostnames
+		SET saas_zone_id = saa_s_zone_id
+		WHERE (saas_zone_id IS NULL OR saas_zone_id = '')
+		AND saa_s_zone_id IS NOT NULL`).Error
+}
+
+func migrateProbeSamplePartitions(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&domain.ProbeSampleReceipt{}); err != nil {
+		return err
+	}
+	if err := tx.Exec(`INSERT INTO probe_sample_receipts (job_id, sample_id, observed_at, created_at)
+		SELECT job_id, id, observed_at, created_at FROM probe_samples WHERE job_id <> ''
+		ON CONFLICT (job_id) DO NOTHING`).Error; err != nil {
+		return err
+	}
+	if tx.Dialector.Name() != "postgres" {
+		return nil
+	}
+	var partitioned bool
+	if err := tx.Raw(`SELECT EXISTS (
+		SELECT 1 FROM pg_partitioned_table partitioned_table
+		JOIN pg_class table_class ON table_class.oid = partitioned_table.partrelid
+		JOIN pg_namespace table_namespace ON table_namespace.oid = table_class.relnamespace
+		WHERE table_namespace.nspname = current_schema() AND table_class.relname = 'probe_samples'
+	)`).Scan(&partitioned).Error; err != nil {
+		return err
+	}
+	if partitioned {
+		return ensurePostgresProbePartitions(tx, time.Now().UTC(), 7, 32)
+	}
+	if err := tx.Exec(`ALTER TABLE probe_samples RENAME TO probe_samples_unpartitioned_2026080907`).Error; err != nil {
+		return err
+	}
+	if err := tx.Exec(`CREATE TABLE probe_samples (
+		LIKE probe_samples_unpartitioned_2026080907 INCLUDING DEFAULTS INCLUDING STORAGE INCLUDING COMMENTS
+	) PARTITION BY RANGE (observed_at)`).Error; err != nil {
+		return err
+	}
+	if err := tx.Exec(`UPDATE probe_samples_unpartitioned_2026080907
+		SET observed_at = COALESCE(observed_at, created_at, CURRENT_TIMESTAMP)
+		WHERE observed_at IS NULL`).Error; err != nil {
+		return err
+	}
+	if err := tx.Exec(`ALTER TABLE probe_samples ADD CONSTRAINT probe_samples_partitioned_pkey PRIMARY KEY (id, observed_at)`).Error; err != nil {
+		return err
+	}
+	boundary := time.Now().UTC().Truncate(24 * time.Hour).Add(-7 * 24 * time.Hour)
+	if err := tx.Exec(fmt.Sprintf(`CREATE TABLE probe_samples_history PARTITION OF probe_samples FOR VALUES FROM (MINVALUE) TO ('%s')`, boundary.Format("2006-01-02T15:04:05Z07:00"))).Error; err != nil {
+		return err
+	}
+	if err := ensurePostgresProbePartitions(tx, time.Now().UTC(), 7, 32); err != nil {
+		return err
+	}
+	if err := tx.Exec(`INSERT INTO probe_samples SELECT * FROM probe_samples_unpartitioned_2026080907`).Error; err != nil {
+		return err
+	}
+	if err := tx.Exec(`DROP TABLE probe_samples_unpartitioned_2026080907`).Error; err != nil {
+		return err
+	}
+	for _, statement := range []string{
+		`CREATE INDEX idx_probe_samples_partitioned_job_id ON probe_samples (job_id)`,
+		`CREATE INDEX idx_probe_samples_partitioned_node_id ON probe_samples (node_id)`,
+		`CREATE INDEX idx_probe_samples_partitioned_candidate_id ON probe_samples (candidate_id)`,
+		`CREATE INDEX idx_probe_samples_partitioned_route_target_id ON probe_samples (route_target_id)`,
+		`CREATE INDEX idx_probe_samples_partitioned_success ON probe_samples (success)`,
+		`CREATE INDEX idx_probe_samples_partitioned_observed_at ON probe_samples (observed_at)`,
+	} {
+		if err := tx.Exec(statement).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensurePostgresProbePartitions(tx *gorm.DB, now time.Time, pastDays, futureDays int) error {
+	day := now.UTC().Truncate(24 * time.Hour)
+	for offset := -pastDays; offset <= futureDays; offset++ {
+		start := day.Add(time.Duration(offset) * 24 * time.Hour)
+		end := start.Add(24 * time.Hour)
+		name := "probe_samples_p" + start.Format("20060102")
+		statement := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s PARTITION OF probe_samples FOR VALUES FROM ('%s') TO ('%s')`, name, start.Format("2006-01-02T15:04:05Z07:00"), end.Format("2006-01-02T15:04:05Z07:00"))
+		if err := tx.Exec(statement).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) EnsureProbeSamplePartitions(now time.Time) error {
+	if s.Driver != "postgres" && s.Driver != "postgresql" {
+		return nil
+	}
+	return ensurePostgresProbePartitions(s.DB, now, 2, 32)
+}
+
+func migrateAgentTaskUniqueness(tx *gorm.DB) error {
+	if err := tx.Exec(`UPDATE agent_tasks SET status = 'cancelled'
+		WHERE id IN (
+			SELECT id FROM (
+				SELECT id, ROW_NUMBER() OVER (PARTITION BY node_id, candidate_id ORDER BY created_at DESC, id DESC) AS duplicate_rank
+				FROM agent_tasks
+				WHERE candidate_id <> '' AND status IN ('queued', 'sent', 'leased', 'acknowledged', 'running')
+			) ranked WHERE duplicate_rank > 1
+		)`).Error; err != nil {
+		return err
+	}
+	if err := tx.Exec(`UPDATE agent_tasks SET status = 'cancelled'
+		WHERE id IN (
+			SELECT id FROM (
+				SELECT id, ROW_NUMBER() OVER (PARTITION BY node_id, route_target_id ORDER BY created_at DESC, id DESC) AS duplicate_rank
+				FROM agent_tasks
+				WHERE route_target_id <> '' AND status IN ('queued', 'sent', 'leased', 'acknowledged', 'running')
+			) ranked WHERE duplicate_rank > 1
+		)`).Error; err != nil {
+		return err
+	}
+	if err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_task_active_candidate
+		ON agent_tasks (node_id, candidate_id)
+		WHERE candidate_id <> '' AND status IN ('queued', 'sent', 'leased', 'acknowledged', 'running')`).Error; err != nil {
+		return err
+	}
+	return tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_task_active_target
+		ON agent_tasks (node_id, route_target_id)
+		WHERE route_target_id <> '' AND status IN ('queued', 'sent', 'leased', 'acknowledged', 'running')`).Error
+}
+
+func migrateRC3Foundation(tx *gorm.DB) error {
+	models := []any{
+		&domain.Admin{}, &domain.Session{}, &domain.APIKey{},
+		&domain.Connection{}, &domain.Project{}, &domain.ProjectSite{}, &domain.SaaSZone{}, &domain.CustomHostname{},
+		&domain.CandidateSource{}, &domain.Candidate{}, &domain.OptimizedHostname{}, &domain.ProbeProfile{}, &domain.ProbeNode{}, &domain.ProbeSample{}, &domain.ProbeSampleReceipt{}, &domain.ProbeAggregate{},
+		&domain.Route{}, &domain.RouteLine{}, &domain.RouteTarget{}, &domain.Release{}, &domain.ManagedDNSRecord{},
+		&domain.Alert{}, &domain.NotificationChannel{}, &domain.NotificationDelivery{}, &domain.AuditEvent{}, &domain.Setting{},
+		&domain.Job{}, &domain.JobAttempt{}, &domain.JobExecutionLease{}, &domain.AgentTask{}, &domain.InstanceLease{},
+	}
+	if err := tx.AutoMigrate(models...); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	if err := tx.Model(&domain.ProbeNode{}).Where("protocol_version = '' OR protocol_version IS NULL").Updates(map[string]any{"protocol_version": "legacy", "compatibility_status": "degraded"}).Error; err != nil {
+		return err
+	}
+	if err := tx.Model(&domain.CustomHostname{}).Where("ownership_status = '' OR ownership_status IS NULL").Update("ownership_status", gorm.Expr("status")).Error; err != nil {
+		return err
+	}
+	if err := tx.Model(&domain.Alert{}).Where("occurrences = 0").Updates(map[string]any{"occurrences": 1, "last_occurred_at": now}).Error; err != nil {
+		return err
+	}
+	if err := tx.Model(&domain.Connection{}).Where("drift_status = '' OR drift_status IS NULL").Update("drift_status", "unknown").Error; err != nil {
+		return err
+	}
+	return tx.Model(&domain.Route{}).Where("drift_status = '' OR drift_status IS NULL").Update("drift_status", "unknown").Error
+}
+
+func (s *Store) MigrationVersion() (int64, error) {
+	var migration domain.SchemaMigration
+	err := s.DB.Order("version DESC").First(&migration).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, nil
+	}
+	return migration.Version, err
+}
+
+var ErrLeaseHeld = errors.New("instance lease is held by another process")
+
+func (s *Store) AcquireLease(name, owner string, ttl time.Duration) error {
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		now := time.Now().UTC()
+		var lease domain.InstanceLease
+		err := tx.First(&lease, "name = ?", name).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return tx.Create(&domain.InstanceLease{Name: name, Owner: owner, ExpiresAt: now.Add(ttl), UpdatedAt: now}).Error
+		}
+		if err != nil {
+			return err
+		}
+		if lease.Owner != owner && lease.ExpiresAt.After(now) {
+			return fmt.Errorf("%w: %s", ErrLeaseHeld, lease.Owner)
+		}
+		return tx.Model(&lease).Updates(map[string]any{"owner": owner, "expires_at": now.Add(ttl), "updated_at": now}).Error
+	})
+}
+
+func (s *Store) RenewLease(name, owner string, ttl time.Duration) error {
+	now := time.Now().UTC()
+	result := s.DB.Model(&domain.InstanceLease{}).Where("name = ? AND owner = ?", name, owner).Updates(map[string]any{"expires_at": now.Add(ttl), "updated_at": now})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrLeaseHeld
+	}
+	return nil
+}
+
+func (s *Store) ReleaseLease(name, owner string) error {
+	return s.DB.Where("name = ? AND owner = ?", name, owner).Delete(&domain.InstanceLease{}).Error
 }
 
 func (s *Store) Close() error {
@@ -88,11 +406,14 @@ func (s *Store) Close() error {
 
 func (s *Store) SeedDemo() error {
 	var count int64
-	if err := s.DB.Model(&domain.Project{}).Count(&count).Error; err != nil || count > 0 {
+	if err := s.DB.Model(&domain.Project{}).Count(&count).Error; err != nil {
 		return err
 	}
+	if count > 0 {
+		return s.repairLegacyDemoCandidateMetrics()
+	}
 	now := time.Now().UTC()
-	project := domain.Project{Name: "星桥网络", Description: "Cloudflare 与多 CDN 生产接入", Status: "healthy", Color: "#1d7a4c"}
+	project := domain.Project{Name: "星桥网络", Avatar: "星", Description: "Cloudflare 与多 CDN 生产接入", Status: "healthy", Color: "#1d7a4c"}
 	if err := s.DB.Create(&project).Error; err != nil {
 		return err
 	}
@@ -119,10 +440,10 @@ func (s *Store) SeedDemo() error {
 		return err
 	}
 	candidates := []domain.Candidate{
-		{ProjectID: project.ID, SourceID: source.ID, Address: "104.16.132.229", Family: 4, Tier: "active", Tags: "香港,移动", Healthy: true, Score: 94.8, SuccessRate: 99.98, TCPMS: 18.4, TLSMS: 32.1, TTFBMS: 48.7, DownloadBPS: 14800000, LastProbedAt: &now},
-		{ProjectID: project.ID, SourceID: source.ID, Address: "172.67.74.94", Family: 4, Tier: "active", Tags: "东京,联通", Healthy: true, Score: 92.6, SuccessRate: 99.92, TCPMS: 21.7, TLSMS: 35.2, TTFBMS: 53.3, DownloadBPS: 13200000, LastProbedAt: &now},
-		{ProjectID: project.ID, SourceID: source.ID, Address: "104.18.36.118", Family: 4, Tier: "ranking", Tags: "新加坡,电信", Healthy: true, Score: 89.4, SuccessRate: 99.87, TCPMS: 27.9, TLSMS: 42.7, TTFBMS: 61.1, DownloadBPS: 11900000, LastProbedAt: &now},
-		{ProjectID: project.ID, SourceID: source.ID, Address: "2606:4700::6810:84e5", Family: 6, Tier: "ranking", Tags: "香港,IPv6", Healthy: true, Score: 87.9, SuccessRate: 99.80, TCPMS: 24.6, TLSMS: 39.8, TTFBMS: 58.9, DownloadBPS: 10200000, LastProbedAt: &now},
+		{ProjectID: project.ID, SourceID: source.ID, Address: "104.16.132.229", Family: 4, Tier: "active", Tags: "香港,移动", Healthy: true, Score: 94.8, SuccessRate: 99.98, FailureRate: 0.02, SampleCount: 60, TCPMS: 18.4, TLSMS: 32.1, TTFBMS: 48.7, P50MS: 72.0, P95MS: 118.4, DownloadBPS: 14800000, LastProbedAt: &now},
+		{ProjectID: project.ID, SourceID: source.ID, Address: "172.67.74.94", Family: 4, Tier: "active", Tags: "东京,联通", Healthy: true, Score: 92.6, SuccessRate: 99.92, FailureRate: 0.08, SampleCount: 60, TCPMS: 21.7, TLSMS: 35.2, TTFBMS: 53.3, P50MS: 78.1, P95MS: 125.3, DownloadBPS: 13200000, LastProbedAt: &now},
+		{ProjectID: project.ID, SourceID: source.ID, Address: "104.18.36.118", Family: 4, Tier: "ranking", Tags: "新加坡,电信", Healthy: true, Score: 89.4, SuccessRate: 99.87, FailureRate: 0.13, SampleCount: 60, TCPMS: 27.9, TLSMS: 42.7, TTFBMS: 61.1, P50MS: 85.2, P95MS: 141.9, DownloadBPS: 11900000, LastProbedAt: &now},
+		{ProjectID: project.ID, SourceID: source.ID, Address: "2606:4700::6810:84e5", Family: 6, Tier: "ranking", Tags: "香港,IPv6", Healthy: true, Score: 87.9, SuccessRate: 99.80, FailureRate: 0.20, SampleCount: 60, TCPMS: 24.6, TLSMS: 39.8, TTFBMS: 58.9, P50MS: 83.8, P95MS: 136.5, DownloadBPS: 10200000, LastProbedAt: &now},
 	}
 	for i := range candidates {
 		if err := s.DB.Create(&candidates[i]).Error; err != nil {
@@ -201,6 +522,29 @@ func (s *Store) SeedDemo() error {
 		}
 	}
 	slog.Info("seeded development demo data", "project", project.ID)
+	return nil
+}
+
+func (s *Store) repairLegacyDemoCandidateMetrics() error {
+	var project domain.Project
+	if err := s.DB.Where("name = ? AND description = ?", "星桥网络", "Cloudflare 与多 CDN 生产接入").First(&project).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	metrics := map[string]map[string]any{
+		"104.16.132.229":       {"failure_rate": 0.02, "sample_count": 60, "p50_ms": 72.0, "p95_ms": 118.4},
+		"172.67.74.94":         {"failure_rate": 0.08, "sample_count": 60, "p50_ms": 78.1, "p95_ms": 125.3},
+		"104.18.36.118":        {"failure_rate": 0.13, "sample_count": 60, "p50_ms": 85.2, "p95_ms": 141.9},
+		"2606:4700::6810:84e5": {"failure_rate": 0.20, "sample_count": 60, "p50_ms": 83.8, "p95_ms": 136.5},
+	}
+	for address, values := range metrics {
+		if err := s.DB.Model(&domain.Candidate{}).
+			Where("project_id = ? AND address = ? AND sample_count = 0", project.ID, address).
+			Updates(values).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

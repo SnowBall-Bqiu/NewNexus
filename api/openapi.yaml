@@ -1,145 +1,525 @@
 openapi: 3.1.0
 info:
   title: NewNexus API
-  version: 1.0.0
-  description: 自托管 CF 优选、Cloudflare for SaaS 与多 CDN CNAME 线路调度 API。
+  version: 1.2.0
+  description: 自托管 CF 优选、Cloudflare for SaaS、多 CDN CNAME 调度、Agent、作业、告警与审计 API。
 servers:
   - url: /api/v1
+security:
+  - sessionCookie: []
+  - apiKey: []
 paths:
+  /auth/status:
+    get:
+      security: []
+      summary: 查询首次安装、登录与 TOTP 风险状态
+      responses:
+        '200': { description: 认证状态 }
+  /auth/setup:
+    post:
+      security: []
+      summary: 创建唯一管理员、会话和一次性恢复码
+      responses:
+        '201': { description: 管理员已创建 }
+        '422': { description: 字段校验失败或管理员已存在 }
+  /auth/login:
+    post:
+      security: []
+      summary: 使用密码及可选 TOTP 或恢复码登录
+      responses:
+        '200': { description: 登录成功 }
+        '401': { description: 凭据无效 }
   /summary:
     get:
-      summary: 获取控制台摘要
+      summary: 获取真实探测指标和资源摘要
       responses:
         '200': { description: 摘要数据 }
+  /observability:
+    get:
+      summary: 查询数据库大小、迁移版本、作业延迟、队列深度与指标行数
+      responses:
+        '200': { description: 可观测性快照 }
+  /events/stream:
+    get:
+      summary: 订阅聚合状态与作业进度 SSE
+      responses:
+        '200': { description: text/event-stream }
+  /jobs:
+    get:
+      summary: 使用游标和状态过滤查询异步作业
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { in: query, name: status, schema: { type: string } }
+      responses:
+        '200': { description: 作业列表 }
+  /jobs/{id}:
+    get:
+      summary: 查询作业与执行尝试
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200': { description: 作业详情 }
+        '404': { description: 作业不存在 }
+  /jobs/{id}/cancel:
+    post:
+      summary: 取消等待中或运行中的作业
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200': { description: 作业已取消 }
+  /jobs/{id}/retry:
+    post:
+      summary: 重新入队失败或已取消的作业
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '202': { $ref: '#/components/responses/JobAccepted' }
+  /jobs/{id}/resume:
+    post:
+      summary: 恢复已暂停的自动化对象并重新排队原作业
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses: { '202': { $ref: '#/components/responses/JobAccepted' }, '409': { description: 作业或资源不允许恢复 } }
+  /projects:
+    get:
+      summary: 列出项目
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses: { '200': { description: 项目列表 } }
+    post:
+      summary: 创建项目
+      responses: { '201': { description: 项目已创建 } }
+  /projects/{id}:
+    put:
+      summary: 更新项目
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 项目已更新 } }
+    delete:
+      summary: 删除无关联资源的项目
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '204': { description: 项目已删除 }, '409': { description: 项目仍被引用 } }
+  /projects/{id}/sites:
+    get:
+      summary: 列出项目站点
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 站点列表 } }
+    post:
+      summary: 创建带独立探测 URL 的站点
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '201': { description: 站点已创建 } }
+  /projects/{id}/sites/{siteId}:
+    put:
+      summary: 更新站点 URL、模板和探测覆盖项
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { in: path, name: siteId, required: true, schema: { type: string, format: uuid } }
+      responses: { '200': { description: 站点已更新 }, '422': { description: 模板归属或覆盖项无效 } }
+    delete:
+      summary: 删除未被线路规则引用的站点
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { in: path, name: siteId, required: true, schema: { type: string, format: uuid } }
+      responses: { '204': { description: 站点已删除 }, '409': { description: 站点仍被线路规则引用 } }
   /connections:
     get:
-      summary: 列出厂商连接
-      responses:
-        '200': { description: 连接列表 }
-    post:
-      summary: 创建并验证厂商连接
-      responses:
-        '201': { description: 已创建 }
-  /optimizer/candidates:
-    get:
-      summary: 查询优选候选及评分
-      responses:
-        '200': { description: 候选列表 }
-  /optimizer/hostnames:
-    get:
-      summary: 列出受管优选 A/AAAA 域名
-      responses:
-        '200': { description: 优选域名列表 }
-    post:
-      summary: 创建优选域名 desired 状态
-      responses:
-        '201': { description: 已创建 }
-  /optimizer/hostnames/{id}/preview:
-    post:
-      summary: 预览榜单地址与 DNS 差异
+      summary: 列出厂商连接和能力
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200': { description: A/AAAA 发布预览 }
-  /optimizer/hostnames/{id}/publish:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses: { '200': { description: 连接列表 } }
     post:
-      summary: 发布并回读确认优选 A/AAAA
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200': { description: 已发布并确认 }
-        '422': { description: 无健康候选或凭据不可用 }
-  /nodes/enroll:
-    post:
-      summary: 创建一次性 Agent 注册码与 Linux amd64/arm64 一键安装命令
-      responses:
-        '201': { description: 注册信息 }
-  /routes/{id}/preview:
-    post:
-      summary: 预览 CNAME 线路发布差异
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200': { description: 发布预览 }
-  /routes/{id}/lines:
-    post:
-      summary: 添加厂商线路及首个 CNAME 目标
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '201': { description: 更新后的线路规则 }
-        '409': { description: 厂商线路代码重复 }
-        '422': { description: 厂商能力或目标校验失败 }
-  /routes/{id}/lines/{lineId}/targets:
-    post:
-      summary: 向线路添加 CNAME 目标
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, format: uuid }
-        - in: path
-          name: lineId
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '201': { description: 已添加目标 }
-  /routes/{id}/lines/{lineId}/targets/{targetId}:
+      summary: 真实验证凭据后加密保存连接
+      responses: { '201': { description: 连接已创建 }, '422': { description: 厂商验证失败 } }
+  /connections/{id}:
     put:
-      summary: 更新或停用 CNAME 目标
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, format: uuid }
-        - in: path
-          name: lineId
-          required: true
-          schema: { type: string, format: uuid }
-        - in: path
-          name: targetId
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200': { description: 已更新目标 }
-  /routes/{id}/apply:
+      summary: 更新连接名称、用途并可选轮换已验证的凭据
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 连接已更新 }, '404': { description: 连接不存在 }, '422': { description: 新凭据验证失败 } }
+    delete:
+      summary: 删除未被 SaaS、优选、线路或受管 DNS 记录引用的连接
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '204': { description: 连接已删除 }, '404': { description: 连接不存在 }, '409': { description: 连接仍被关联资源使用 } }
+  /connections/{id}/zones:
+    get:
+      summary: 分页同步厂商区域
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 区域列表 } }
+  /connections/{id}/validate:
     post:
-      summary: 发布 CNAME 线路变更
+      summary: 重新验证连接凭据和实时能力
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 连接能力已更新 }, '422': { description: 凭据或权限无效 } }
+  /connections/{id}/zones/{zone}/lines:
+    get:
+      summary: 同步厂商真实线路代码和能力
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200': { description: 发布结果 }
+        - { $ref: '#/components/parameters/Id' }
+        - { in: path, name: zone, required: true, schema: { type: string } }
+      responses: { '200': { description: 厂商线路列表 } }
+  /saas/zones:
+    get:
+      summary: 列出 SaaS 区域、额度与回退源状态
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses: { '200': { description: SaaS 区域列表 } }
+    post:
+      summary: 创建 SaaS 区域并异步验证能力、额度和回退源
+      responses: { '202': { $ref: '#/components/responses/JobAccepted' } }
+  /saas/zones/{id}/sync:
+    post:
+      summary: 异步同步 SaaS 能力、额度和回退源
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '202': { $ref: '#/components/responses/JobAccepted' } }
   /saas/hostnames:
     get:
-      summary: 列出 Cloudflare for SaaS 自定义主机名
-      responses:
-        '200': { description: 主机名列表 }
+      summary: 列出所有权、证书和切流状态分离的自定义主机名
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses: { '200': { description: 主机名列表 } }
     post:
-      summary: 创建 Cloudflare for SaaS 自定义主机名
-      responses:
-        '201': { description: 主机名状态 }
+      summary: 创建主机名并异步执行 HTTP/TXT 预验证
+      responses: { '202': { $ref: '#/components/responses/JobAccepted' } }
+  /saas/hostnames/bulk:
+    post:
+      summary: 批量创建最多 500 个自定义主机名作业
+      responses: { '202': { description: 已创建资源和作业列表 } }
+  /saas/hostnames/bulk-delete:
+    post:
+      summary: 为最多 500 个主机名创建带 DNS 所有权保护的清理作业
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses: { '202': { description: 已创建清理作业列表 }, '409': { description: DNS 记录漂移或不归平台所有 } }
   /saas/hostnames/{id}/sync:
     post:
-      summary: 同步 Cloudflare 状态并调和验证 TXT 与业务 CNAME
+      summary: 异步同步主机名、证书及 DNS observed 状态
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '202': { $ref: '#/components/responses/JobAccepted' } }
+  /saas/hostnames/{id}/resume-automation:
+    post:
+      summary: 管理员显式恢复暂停的 SaaS DNS 自动化
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/Id' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses: { '202': { $ref: '#/components/responses/JobAccepted' }, '409': { description: 对象未暂停或配置仍不完整 } }
+  /saas/hostnames/{id}/cutover:
+    post:
+      summary: 主机名与证书均 active 后批准零停机迁移切流
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses: { '202': { $ref: '#/components/responses/JobAccepted' }, '409': { description: 主机名或证书尚未 active } }
+  /saas/hostnames/{id}:
+    delete:
+      summary: 异步清理 Cloudflare 主机名及平台所有权数据
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '202': { $ref: '#/components/responses/JobAccepted' } }
+  /optimizer/sources/{id}/sync:
+    post:
+      summary: 异步同步官方、手工、CSV、JSON、DNS 或 HTTPS 候选源
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '202': { $ref: '#/components/responses/JobAccepted' } }
+  /optimizer/sources:
+    get:
+      summary: 列出候选源及同步状态
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses: { '200': { description: 候选源列表 } }
+    post:
+      summary: 创建官方、手工、CIDR、CSV、JSON、DNS 或 HTTPS 候选源
+      responses: { '201': { description: 候选源已创建 } }
+  /optimizer/candidates:
+    get:
+      summary: 查询三级候选与真实评分指标
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { name: scope, in: query, schema: { type: string, enum: [node_group, line] } }
+        - { name: scopeValue, in: query, schema: { type: string } }
+      responses: { '200': { description: 候选列表 } }
+  /optimizer/ranking-scopes:
+    get:
+      summary: 查询可用的全局、节点组与线路榜单视角
+      responses: { '200': { description: 榜单视角列表 } }
+  /optimizer/recompute:
+    post:
+      summary: 重新计算项目的全局、节点组和线路评分
+      responses: { '200': { description: 评分已更新 } }
+  /probe/profiles:
+    get:
+      summary: 列出探测模板
+      responses: { '200': { description: 探测模板列表 } }
+    post:
+      summary: 创建包含 HTTP 断言、请求头和超时的探测模板
+      responses: { '201': { description: 探测模板已创建 }, '422': { description: 模板无效 } }
+  /probe/profiles/{id}:
+    put:
+      summary: 更新探测模板
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 探测模板已更新 }, '422': { description: 模板无效 } }
+  /optimizer/hostnames/{id}/preview:
+    post:
+      summary: 预览受管 A/AAAA 差异和所有权冲突
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 发布预览 } }
+  /optimizer/hostnames/{id}/publish:
+    post:
+      summary: 异步发布 DNS-only 优选域名并双重确认
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '202': { $ref: '#/components/responses/JobAccepted' } }
+  /nodes/enroll:
+    post:
+      summary: 创建 15 分钟有效的一次性注册码和自动安装命令
+      responses: { '201': { description: 注册信息和安装命令 } }
+  /nodes:
+    get:
+      summary: 列出 Agent 节点及注册、在线和撤销状态
+      responses: { '200': { description: 节点列表 } }
+  /nodes/{id}/rotate:
+    post:
+      summary: 异步执行带 rotation_id 和 ACK 的 Agent 凭据轮换
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses: { '202': { $ref: '#/components/responses/JobAccepted' }, '409': { description: 节点已撤销 } }
+  /nodes/{id}/recovery-code:
+    post:
+      summary: 生成短时有效且只能消费一次的节点恢复码
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '201': { description: 返回一次性恢复码、过期时间和远程恢复命令 }, '409': { description: 节点已撤销 } }
+    delete:
+      summary: 撤销尚未消费的节点恢复码
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 恢复码已撤销 } }
+  /nodes/{id}/re-enroll:
+    post:
+      summary: recovery-code 的兼容别名
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '201': { description: 返回一次性恢复码、过期时间和远程恢复命令 } }
+  /nodes/{id}/revoke:
+    post:
+      summary: 撤销 Agent 凭据并断开连接
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 节点已撤销 } }
+  /nodes/{id}:
+    delete:
+      summary: 删除无活跃任务且不影响线路仲裁容量的节点
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
       responses:
-        '200': { description: 同步后的主机名与 DNS 自动化状态 }
+        '204': { description: 节点已删除 }
+        '409': { description: 节点在线、仍有活跃任务或节点组容量不足 }
+  /routes:
+    get:
+      summary: 列出 CNAME 线路规则
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses: { '200': { description: 线路规则列表 } }
+    post:
+      summary: 创建显式绑定项目、站点、连接和区域的线路规则
+      responses: { '201': { description: 线路规则已创建 }, '422': { description: 引用、线路或目标无效 } }
+  /routes/{id}:
+    get:
+      summary: 查询线路、优先级组和目标详情
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 线路规则详情 } }
+    put:
+      summary: 更新线路规则、站点绑定与发布模式
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 线路规则已更新 }, '422': { description: 引用无效 } }
+    delete:
+      summary: 删除没有受管 DNS 记录的线路规则
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '204': { description: 线路规则已删除 }, '409': { description: 仍拥有受管 DNS 记录 } }
+  /routes/{id}/lines:
+    post:
+      summary: 添加厂商线路代码和首个 CNAME 目标
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '201': { description: 线路已创建 }, '422': { description: 厂商不支持或输入无效 } }
+  /routes/{id}/lines/{lineId}:
+    put:
+      summary: 更新节点组、仲裁比例和厂商线路代码
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { in: path, name: lineId, required: true, schema: { type: string, format: uuid } }
+      responses: { '200': { description: 线路已更新 } }
+    delete:
+      summary: 删除非最后一条线路
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { in: path, name: lineId, required: true, schema: { type: string, format: uuid } }
+      responses: { '204': { description: 线路已删除 }, '409': { description: 必须保留至少一条线路 } }
+  /routes/{id}/lines/{lineId}/targets:
+    post:
+      summary: 添加带固定权重、优先级和探测覆盖项的 CNAME 目标
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { in: path, name: lineId, required: true, schema: { type: string, format: uuid } }
+      responses: { '201': { description: 目标已创建 }, '422': { description: CNAME 或探测覆盖项无效 } }
+  /routes/{id}/lines/{lineId}/targets/{targetId}:
+    put:
+      summary: 更新或启停 CNAME 目标
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { in: path, name: lineId, required: true, schema: { type: string, format: uuid } }
+        - { in: path, name: targetId, required: true, schema: { type: string, format: uuid } }
+      responses: { '200': { description: 目标已更新 }, '422': { description: CNAME 或探测覆盖项无效 } }
+    delete:
+      summary: 删除非最后一个 CNAME 目标
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { in: path, name: lineId, required: true, schema: { type: string, format: uuid } }
+        - { in: path, name: targetId, required: true, schema: { type: string, format: uuid } }
+      responses: { '204': { description: 目标已删除 }, '409': { description: 必须保留至少一个目标 } }
+  /routes/{id}/preview:
+    post:
+      summary: 执行所有权、能力、环路、健康和风险预检
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 逐条 DNS 差异 } }
+  /routes/{id}/apply:
+    post:
+      summary: 异步发布、API 回读、权威 DNS 确认并在失败时回滚
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses: { '202': { $ref: '#/components/responses/JobAccepted' } }
+  /releases/{id}/rollback:
+    post:
+      summary: 异步恢复发布前受管记录快照
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses: { '202': { $ref: '#/components/responses/JobAccepted' } }
+  /releases:
+    get:
+      summary: 使用游标查询线路发布与回滚记录
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses: { '200': { description: 发布记录列表 } }
+  /alerts:
+    get:
+      summary: 查询去重、确认、恢复与静默状态
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses: { '200': { description: 告警列表 } }
+  /alerts/{id}/acknowledge:
+    post:
+      summary: 确认告警
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 告警已确认 } }
+  /alerts/{id}/resolve:
+    post:
+      summary: 手动恢复告警
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 告警已恢复 } }
+  /alerts/{id}/silence:
+    post:
+      summary: 静默告警到指定 UTC 时间
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: 告警已静默 } }
+  /notifications/test:
+    post:
+      summary: 异步测试已配置的 Webhook 和 SMTP 通知渠道
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses: { '202': { description: 通知测试作业已创建 }, '422': { description: 尚未配置通知渠道 } }
+  /audit:
+    get:
+      summary: 查询脱敏审计事件
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses: { '200': { description: 审计列表 } }
+  /api-keys:
+    get:
+      summary: 列出掩码 API Key
+      responses: { '200': { description: API Key 列表 } }
+    post:
+      summary: 创建仅显示一次明文的 API Key
+      responses: { '201': { description: API Key 已创建 } }
+  /api-keys/{id}/revoke:
+    post:
+      summary: 撤销 API Key
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: API Key 已撤销 } }
+  /auth/totp/start:
+    post:
+      summary: 创建待确认的 TOTP 密钥
+      responses: { '200': { description: 返回密钥和 otpauth URI } }
+  /auth/totp/confirm:
+    post:
+      summary: 使用验证码确认并启用 TOTP
+      responses: { '200': { description: TOTP 已启用 }, '422': { description: 验证码无效 } }
+  /auth/totp/disable:
+    post:
+      summary: 校验密码后停用 TOTP
+      responses: { '200': { description: TOTP 已停用 } }
+  /auth/recovery-codes/regenerate:
+    post:
+      summary: 重新生成仅显示一次的恢复码
+      responses: { '200': { description: 返回新恢复码 } }
+  /auth/sessions:
+    get:
+      summary: 列出管理员会话
+      responses: { '200': { description: 会话列表 } }
+  /auth/sessions/revoke-all:
+    post:
+      summary: 撤销管理员的全部登录会话
+      responses: { '200': { description: 会话已撤销 } }
+  /settings:
+    get:
+      summary: 查询探测、保留期和通知设置
+      responses: { '200': { description: 设置列表 } }
+    put:
+      summary: 更新设置，敏感值加密保存并掩码返回
+      responses: { '200': { description: 设置已更新 } }
+components:
+  parameters:
+    Id:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: false
+      schema: { type: string, maxLength: 160 }
+    Cursor:
+      in: query
+      name: cursor
+      required: false
+      description: 上一页返回的稳定不透明游标。
+      schema: { type: string }
+    Limit:
+      in: query
+      name: limit
+      required: false
+      description: 单页资源数量，默认值由接口决定。
+      schema: { type: integer, minimum: 1, maximum: 200 }
+  responses:
+    JobAccepted:
+      description: 外部写操作已进入异步作业系统
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                type: object
+                required: [jobId, job, reused]
+                properties:
+                  jobId: { type: string, format: uuid }
+                  job: { type: object }
+                  reused: { type: boolean }
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: newnexus_session
+    apiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: nn_ API Key

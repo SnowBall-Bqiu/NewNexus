@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go test and vet
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: newnexus_test
+          POSTGRES_USER: newnexus
+          POSTGRES_PASSWORD: newnexus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U newnexus -d newnexus_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check formatting
+        run: test -z "$(gofmt -l cmd internal)"
+      - name: Run unit and SQLite migration tests
+        run: go test -race ./cmd/... ./internal/...
+      - name: Run vet
+        run: go vet ./cmd/... ./internal/...
+      - name: Run PostgreSQL migration and multi-worker lease tests
+        env:
+          NEWNEXUS_TEST_POSTGRES_URL: postgres://newnexus:newnexus_test@127.0.0.1:5432/newnexus_test?sslmode=disable
+        run: go test ./internal/store ./internal/jobs ./internal/agenthub
+
+  web:
+    name: Web lint, test and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+      - name: Run ESLint
+        working-directory: web
+        run: npm run lint
+      - name: Run unit tests
+        working-directory: web
+        run: npm run test
+      - name: Build production console and run policy checks
+        working-directory: web
+        run: npm run build
+
+  e2e:
+    name: Browser end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Install Chromium and system dependencies
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Run full browser flows
+        working-directory: web
+        run: npm run test:e2e
+
+  deployment:
+    name: Compose and container validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Validate documented Compose profiles
+        env:
+          NEWNEXUS_MASTER_KEY: CI-only-master-key-with-more-than-20-characters
+          POSTGRES_PASSWORD: newnexus_test
+          NEWNEXUS_AGENT_ENROLL_CODE: ci-placeholder-enrollment-code
+        run: docker compose -f docker-compose.yaml --profile sqlite --profile postgres --profile agent config --quiet
+      - name: Build control-plane image
+        run: docker build --build-arg VERSION=ci -t newnexus:ci .
+      - name: Build Agent image
+        run: docker build --build-arg VERSION=ci -f Dockerfile.agent -t newnexus-agent:ci .

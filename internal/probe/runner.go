@@ -9,13 +9,14 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/netip"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/SnowBall-Bqiu/NewNexus/internal/agenthub"
+	"github.com/SnowBall-Bqiu/NewNexus/internal/netguard"
 )
 
 type Result struct {
@@ -30,6 +31,7 @@ type Result struct {
 	TTFBMS        float64   `json:"ttfbMs"`
 	TotalMS       float64   `json:"totalMs"`
 	BytesRead     int64     `json:"bytesRead"`
+	DownloadBPS   float64   `json:"downloadBps"`
 	StatusCode    int       `json:"statusCode"`
 	ObservedAt    time.Time `json:"observedAt"`
 }
@@ -62,9 +64,17 @@ func Run(ctx context.Context, task agenthub.Task) Result {
 }
 
 func runTCP(ctx context.Context, task agenthub.Task, result *Result) error {
-	address := net.JoinHostPort(task.Address, fmt.Sprintf("%d", defaultPort(task.Port, 443)))
+	port := defaultPort(task.Port, 443)
+	if !portAllowed(task, port) {
+		return fmt.Errorf("blocked probe port %d", port)
+	}
+	addresses, err := netguard.ResolvePublic(ctx, net.DefaultResolver, task.Address)
+	if err != nil {
+		return fmt.Errorf("blocked destination: %w", err)
+	}
+	address := net.JoinHostPort(addresses[0].String(), fmt.Sprintf("%d", port))
 	started := time.Now()
-	connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
+	connection, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", address)
 	result.TCPMS = milliseconds(time.Since(started))
 	if err != nil {
 		return err
@@ -77,6 +87,9 @@ func runHTTP(ctx context.Context, task agenthub.Task, result *Result) error {
 	if err != nil || parsed.Hostname() == "" {
 		return fmt.Errorf("invalid probe URL")
 	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("invalid probe URL scheme")
+	}
 	port := task.Port
 	if port == 0 {
 		if parsed.Scheme == "http" {
@@ -85,23 +98,28 @@ func runHTTP(ctx context.Context, task agenthub.Task, result *Result) error {
 			port = 443
 		}
 	}
+	if !portAllowed(task, port) {
+		return fmt.Errorf("blocked probe port %d", port)
+	}
 	target := task.Address
 	if target == "" {
 		target = parsed.Hostname()
 	}
-	if err := validateDestination(target); err != nil {
+	addresses, err := netguard.ResolvePublic(ctx, net.DefaultResolver, target)
+	if err != nil {
 		return err
 	}
+	targetIP := addresses[0].String()
 	transport := &http.Transport{DisableKeepAlives: true, ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{ServerName: firstNonEmpty(task.SNI, parsed.Hostname()), MinVersion: tls.VersionTLS12}}
 	transport.DialContext = func(dialCtx context.Context, network, _ string) (net.Conn, error) {
 		started := time.Now()
-		connection, err := (&net.Dialer{}).DialContext(dialCtx, network, net.JoinHostPort(target, fmt.Sprintf("%d", port)))
+		connection, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(dialCtx, network, net.JoinHostPort(targetIP, fmt.Sprintf("%d", port)))
 		result.TCPMS = milliseconds(time.Since(started))
 		return connection, err
 	}
 	transport.DialTLSContext = func(dialCtx context.Context, network, _ string) (net.Conn, error) {
 		started := time.Now()
-		raw, err := (&net.Dialer{}).DialContext(dialCtx, network, net.JoinHostPort(target, fmt.Sprintf("%d", port)))
+		raw, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(dialCtx, network, net.JoinHostPort(targetIP, fmt.Sprintf("%d", port)))
 		result.TCPMS = milliseconds(time.Since(started))
 		if err != nil {
 			return nil, err
@@ -115,9 +133,12 @@ func runHTTP(ctx context.Context, task agenthub.Task, result *Result) error {
 		result.TLSMS = milliseconds(time.Since(tlsStarted))
 		return secure, nil
 	}
-	client := &http.Client{Transport: transport, CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+	client := &http.Client{Transport: transport, CheckRedirect: func(request *http.Request, via []*http.Request) error {
 		if len(via) >= 3 {
 			return fmt.Errorf("too many redirects")
+		}
+		if normalizeHost(request.URL.Hostname()) != normalizeHost(parsed.Hostname()) {
+			return fmt.Errorf("redirect target hostname changed")
 		}
 		return nil
 	}}
@@ -137,8 +158,13 @@ func runHTTP(ctx context.Context, task agenthub.Task, result *Result) error {
 		request.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0")
 	}
 	started := time.Now()
+	trace := &httptrace.ClientTrace{GotFirstResponseByte: func() {
+		if result.TTFBMS == 0 {
+			result.TTFBMS = milliseconds(time.Since(started))
+		}
+	}}
+	request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
 	response, err := client.Do(request)
-	result.TTFBMS = milliseconds(time.Since(started))
 	if err != nil {
 		return err
 	}
@@ -156,14 +182,17 @@ func runHTTP(ctx context.Context, task agenthub.Task, result *Result) error {
 		limit = 1 << 20
 	}
 	reader := io.LimitReader(response.Body, limit)
+	downloadStarted := time.Now()
 	if task.ExpectedContains == "" {
 		bytesRead, err := io.Copy(io.Discard, reader)
 		result.BytesRead = bytesRead
+		result.DownloadBPS = bytesPerSecond(bytesRead, time.Since(downloadStarted))
 		return err
 	}
 	buffered := bufio.NewReader(reader)
 	raw, err := io.ReadAll(buffered)
 	result.BytesRead = int64(len(raw))
+	result.DownloadBPS = bytesPerSecond(result.BytesRead, time.Since(downloadStarted))
 	if err != nil {
 		return err
 	}
@@ -174,23 +203,8 @@ func runHTTP(ctx context.Context, task agenthub.Task, result *Result) error {
 }
 
 func validateDestination(host string) error {
-	if address, err := netip.ParseAddr(host); err == nil {
-		if !address.IsGlobalUnicast() || address.IsPrivate() || address.IsLoopback() || address.IsLinkLocalUnicast() {
-			return fmt.Errorf("blocked destination")
-		}
-		return nil
-	}
-	addresses, err := net.LookupIP(host)
-	if err != nil {
-		return err
-	}
-	for _, address := range addresses {
-		parsed, ok := netip.AddrFromSlice(address)
-		if !ok || !parsed.IsGlobalUnicast() || parsed.IsPrivate() || parsed.IsLoopback() || parsed.IsLinkLocalUnicast() {
-			return fmt.Errorf("hostname resolves to a blocked destination")
-		}
-	}
-	return nil
+	_, err := netguard.ResolvePublic(context.Background(), net.DefaultResolver, host)
+	return err
 }
 
 func SaveState(path string, value any) error {
@@ -222,6 +236,27 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 func milliseconds(value time.Duration) float64 { return float64(value.Microseconds()) / 1000 }
+func bytesPerSecond(bytes int64, duration time.Duration) float64 {
+	if bytes <= 0 || duration <= 0 {
+		return 0
+	}
+	return float64(bytes) / duration.Seconds()
+}
+func portAllowed(task agenthub.Task, port int) bool {
+	allowed := task.AllowedPorts
+	if len(allowed) == 0 {
+		allowed = []int{80, 443, 8080, 8443}
+	}
+	for _, candidate := range allowed {
+		if candidate == port {
+			return true
+		}
+	}
+	return false
+}
+func normalizeHost(value string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")
+}
 func containsInt(values []int, expected int) bool {
 	for _, value := range values {
 		if value == expected {

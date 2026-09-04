@@ -14,12 +14,13 @@ var ErrUnsupported = errors.New("provider capability is not supported")
 type Credentials map[string]string
 
 type Capability struct {
-	DNS          bool `json:"dns"`
-	Lines        bool `json:"lines"`
-	Weights      bool `json:"weights"`
-	ApexCNAME    bool `json:"apexCname"`
-	SaaS         bool `json:"saas"`
-	BatchChanges bool `json:"batchChanges"`
+	DNS          bool              `json:"dns"`
+	Lines        bool              `json:"lines"`
+	Weights      bool              `json:"weights"`
+	ApexCNAME    bool              `json:"apexCname"`
+	SaaS         bool              `json:"saas"`
+	BatchChanges bool              `json:"batchChanges"`
+	Details      map[string]string `json:"details,omitempty"`
 }
 
 type Zone struct {
@@ -42,6 +43,9 @@ type Record struct {
 	TTL      int    `json:"ttl"`
 	Weight   int    `json:"weight"`
 	Enabled  bool   `json:"enabled"`
+	Proxied  bool   `json:"proxied"`
+	Comment  string `json:"comment"`
+	Managed  bool   `json:"managed"`
 }
 
 type RecordChange struct {

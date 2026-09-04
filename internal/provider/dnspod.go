@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -38,14 +39,17 @@ func (d *DNSPod) call(ctx context.Context, credentials Credentials, action strin
 	signature := hex.EncodeToString(hmacSHA256(secretSigning, []byte(stringToSign)))
 	authorization := "TC3-HMAC-SHA256 Credential=" + credentials["secretId"] + "/" + scope + ", SignedHeaders=content-type;host, Signature=" + signature
 	headers := map[string]string{"Authorization": authorization, "X-TC-Action": action, "X-TC-Version": "2021-03-23", "X-TC-Timestamp": strconv.FormatInt(timestamp, 10), "X-TC-Region": "", "Content-Type": "application/json; charset=utf-8"}
-	return d.JSON(ctx, http.MethodPost, "https://dnspod.tencentcloudapi.com/", headers, json.RawMessage(payload), output)
+	return d.JSONWithRetryPolicy(ctx, http.MethodPost, "https://dnspod.tencentcloudapi.com/", headers, json.RawMessage(payload), output, strings.HasPrefix(action, "Describe"))
 }
 
 func (d *DNSPod) Validate(ctx context.Context, credentials Credentials) (Capability, error) {
 	var response struct {
 		Response struct {
-			RequestID string                          `json:"RequestId"`
-			Error     *struct{ Code, Message string } `json:"Error"`
+			RequestID  string `json:"RequestId"`
+			DomainList []struct {
+				Grade string `json:"Grade"`
+			} `json:"DomainList"`
+			Error *struct{ Code, Message string } `json:"Error"`
 		} `json:"Response"`
 	}
 	if err := d.call(ctx, credentials, "DescribeDomainList", map[string]any{"Offset": 0, "Limit": 1}, &response); err != nil {
@@ -54,28 +58,40 @@ func (d *DNSPod) Validate(ctx context.Context, credentials Credentials) (Capabil
 	if response.Response.Error != nil {
 		return Capability{}, fmt.Errorf("%s: %s", response.Response.Error.Code, response.Response.Error.Message)
 	}
-	return Capability{DNS: true, Lines: true, Weights: true}, nil
+	weights := false
+	grade := "unknown"
+	if len(response.Response.DomainList) > 0 {
+		grade = response.Response.DomainList[0].Grade
+		weights = grade != "" && grade != "DP_FREE"
+	}
+	return Capability{DNS: true, Lines: true, Weights: weights, Details: map[string]string{"domainGrade": grade}}, nil
 }
 
 func (d *DNSPod) ListZones(ctx context.Context, credentials Credentials) ([]Zone, error) {
-	var response struct {
-		Response struct {
-			DomainList []struct {
-				DomainID     uint64 `json:"DomainId"`
-				Name, Status string
-			} `json:"DomainList"`
-			Error *struct{ Code, Message string } `json:"Error"`
-		} `json:"Response"`
-	}
-	if err := d.call(ctx, credentials, "DescribeDomainList", map[string]any{"Offset": 0, "Limit": 100}, &response); err != nil {
-		return nil, err
-	}
-	if response.Response.Error != nil {
-		return nil, fmt.Errorf("%s: %s", response.Response.Error.Code, response.Response.Error.Message)
-	}
-	zones := make([]Zone, 0, len(response.Response.DomainList))
-	for _, item := range response.Response.DomainList {
-		zones = append(zones, Zone{ID: strconv.FormatUint(item.DomainID, 10), Name: item.Name, Status: item.Status})
+	zones := make([]Zone, 0)
+	for offset := 0; ; offset += 100 {
+		var response struct {
+			Response struct {
+				DomainCount int `json:"DomainCount"`
+				DomainList  []struct {
+					DomainID     uint64 `json:"DomainId"`
+					Name, Status string
+				} `json:"DomainList"`
+				Error *struct{ Code, Message string } `json:"Error"`
+			} `json:"Response"`
+		}
+		if err := d.call(ctx, credentials, "DescribeDomainList", map[string]any{"Offset": offset, "Limit": 100}, &response); err != nil {
+			return nil, err
+		}
+		if response.Response.Error != nil {
+			return nil, fmt.Errorf("%s: %s", response.Response.Error.Code, response.Response.Error.Message)
+		}
+		for _, item := range response.Response.DomainList {
+			zones = append(zones, Zone{ID: strconv.FormatUint(item.DomainID, 10), Name: item.Name, Status: item.Status})
+		}
+		if len(response.Response.DomainList) < 100 || (response.Response.DomainCount > 0 && len(zones) >= response.Response.DomainCount) {
+			break
+		}
 	}
 	return zones, nil
 }
@@ -87,7 +103,19 @@ func (d *DNSPod) ListLines(ctx context.Context, credentials Credentials, zone Zo
 			Error    *struct{ Code, Message string } `json:"Error"`
 		} `json:"Response"`
 	}
-	if err := d.call(ctx, credentials, "DescribeRecordLineList", map[string]any{"Domain": zone.Name, "DomainGrade": "DP_FREE"}, &response); err != nil {
+	grade := "DP_FREE"
+	var domainResponse struct {
+		Response struct {
+			DomainInfo struct {
+				Grade string `json:"Grade"`
+			} `json:"DomainInfo"`
+			Error *struct{ Code, Message string } `json:"Error"`
+		} `json:"Response"`
+	}
+	if err := d.call(ctx, credentials, "DescribeDomain", map[string]any{"Domain": zone.Name}, &domainResponse); err == nil && domainResponse.Response.Error == nil && domainResponse.Response.DomainInfo.Grade != "" {
+		grade = domainResponse.Response.DomainInfo.Grade
+	}
+	if err := d.call(ctx, credentials, "DescribeRecordLineList", map[string]any{"Domain": zone.Name, "DomainGrade": grade}, &response); err != nil {
 		return nil, err
 	}
 	if response.Response.Error != nil {
@@ -101,29 +129,39 @@ func (d *DNSPod) ListLines(ctx context.Context, credentials Credentials, zone Zo
 }
 
 func (d *DNSPod) ListRecords(ctx context.Context, credentials Credentials, zone Zone, name string) ([]Record, error) {
-	input := map[string]any{"Domain": zone.Name, "Offset": 0, "Limit": 100}
-	if name != "" {
-		input["Subdomain"] = relativeName(name, zone.Name)
-	}
-	var response struct {
-		Response struct {
-			RecordList []struct {
-				RecordID                                uint64 `json:"RecordId"`
-				Name, Type, Value, Line, LineID, Status string
-				TTL, Weight                             int
-			} `json:"RecordList"`
-			Error *struct{ Code, Message string } `json:"Error"`
-		} `json:"Response"`
-	}
-	if err := d.call(ctx, credentials, "DescribeRecordList", input, &response); err != nil {
-		return nil, err
-	}
-	if response.Response.Error != nil {
-		return nil, fmt.Errorf("%s: %s", response.Response.Error.Code, response.Response.Error.Message)
-	}
-	records := make([]Record, 0, len(response.Response.RecordList))
-	for _, item := range response.Response.RecordList {
-		records = append(records, Record{ID: strconv.FormatUint(item.RecordID, 10), Name: item.Name + "." + zone.Name, Type: item.Type, Value: item.Value, LineCode: item.LineID, TTL: item.TTL, Weight: item.Weight, Enabled: item.Status == "ENABLE"})
+	records := make([]Record, 0)
+	for offset := 0; ; offset += 100 {
+		input := map[string]any{"Domain": zone.Name, "Offset": offset, "Limit": 100}
+		if name != "" {
+			input["Subdomain"] = relativeName(name, zone.Name)
+		}
+		var response struct {
+			Response struct {
+				RecordCount int `json:"RecordCount"`
+				RecordList  []struct {
+					RecordID                                uint64 `json:"RecordId"`
+					Name, Type, Value, Line, LineID, Status string
+					TTL, Weight                             int
+				} `json:"RecordList"`
+				Error *struct{ Code, Message string } `json:"Error"`
+			} `json:"Response"`
+		}
+		if err := d.call(ctx, credentials, "DescribeRecordList", input, &response); err != nil {
+			return nil, err
+		}
+		if response.Response.Error != nil {
+			return nil, fmt.Errorf("%s: %s", response.Response.Error.Code, response.Response.Error.Message)
+		}
+		for _, item := range response.Response.RecordList {
+			recordName := item.Name + "." + zone.Name
+			if item.Name == "@" || item.Name == "" {
+				recordName = zone.Name
+			}
+			records = append(records, Record{ID: strconv.FormatUint(item.RecordID, 10), Name: recordName, Type: item.Type, Value: item.Value, LineCode: item.LineID, TTL: item.TTL, Weight: item.Weight, Enabled: item.Status == "ENABLE"})
+		}
+		if len(response.Response.RecordList) < 100 || (response.Response.RecordCount > 0 && len(records) >= response.Response.RecordCount) {
+			break
+		}
 	}
 	return records, nil
 }
@@ -132,7 +170,25 @@ func (d *DNSPod) ApplyChanges(ctx context.Context, credentials Credentials, zone
 	result := make([]Record, 0, len(changes))
 	for _, change := range changes {
 		if change.Operation == "delete" {
-			return nil, fmt.Errorf("DNSPod delete is intentionally disabled until release rollback has a verified snapshot")
+			if change.Before == nil {
+				return nil, fmt.Errorf("delete change is missing existing record")
+			}
+			recordID, err := strconv.ParseUint(change.Before.ID, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid DNSPod record ID: %w", err)
+			}
+			var response struct {
+				Response struct {
+					Error *struct{ Code, Message string } `json:"Error"`
+				} `json:"Response"`
+			}
+			if err := d.call(ctx, credentials, "DeleteRecord", map[string]any{"Domain": zone.Name, "RecordId": recordID}, &response); err != nil {
+				return nil, err
+			}
+			if response.Response.Error != nil {
+				return nil, fmt.Errorf("%s: %s", response.Response.Error.Code, response.Response.Error.Message)
+			}
+			continue
 		}
 		if change.After == nil {
 			return nil, fmt.Errorf("change is missing desired record")

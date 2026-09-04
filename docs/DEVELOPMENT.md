@@ -4,7 +4,7 @@
 
 - Go 1.22 模块，建议使用 Go 1.24；控制端和 Agent 均可构建为 `CGO_ENABLED=0` 的 Linux 二进制。
 - React 18、TypeScript 5.6、Vite 5。
-- Base UI 提供 Dialog、Tooltip 等交互原语，Sonner 提供 Toast，Virtuoso 提供大列表，Recharts 提供历史曲线。
+- `@cloudflare/kumo@2.9.2` 提供 Sidebar、Dialog、Tooltip、Table、Select、Toasty、Meter 与 TimeseriesChart；Phosphor 提供图标，Virtuoso 提供大候选列表虚拟化，ECharts 6 提供历史指标渲染。
 - SQLite 使用纯 Go 驱动；PostgreSQL 使用 GORM PostgreSQL 驱动。
 
 ```text
@@ -12,13 +12,18 @@ cmd/server/          控制面 HTTP、SSE、gRPC 入口
 cmd/agent/           仅主动出站的探测 Agent
 internal/api/        /api/v1 REST 与静态前端
 internal/agenthub/   agent.v1 注册、双向流、任务与结果
+internal/agentoutbox/ Agent bbolt 持久化结果队列
+internal/jobs/       外部写作业、租约、重试、取消与进度
+internal/netguard/   SSRF、端口白名单与固定解析地址
+internal/dnsverify/  权威 DNS 回读确认
 internal/optimizer/  候选同步、IPv6 抽样与评分
 internal/routing/    线路仲裁、迟滞、发布和回滚
 internal/provider/   Cloudflare、DNSPod、阿里云适配器
-internal/security/   凭据加密、SSRF 与安全工具
+internal/security/   Argon2id、AEAD 与令牌工具
 internal/store/      双数据库、迁移和演示数据
 web/                 React 管理界面
 api/openapi.yaml     REST 契约入口
+proto/agent/v1/      正式 Agent 协议与 rc.2 兼容说明
 deploy/              反向代理与 systemd 示例
 ```
 
@@ -43,11 +48,15 @@ $env:NEWNEXUS_DEMO='true'
 $env:NEWNEXUS_DEV_AUTH='true'
 $env:NEWNEXUS_DATABASE_DRIVER='sqlite'
 $env:NEWNEXUS_DATABASE_URL='dev-newnexus.db'
+$env:NEWNEXUS_HTTP_ADDR='127.0.0.1:18080'
+$env:NEWNEXUS_GRPC_ADDR='127.0.0.1:19090'
+$env:NEWNEXUS_PUBLIC_URL='http://127.0.0.1:18080'
+$env:NEWNEXUS_AGENT_PUBLIC_SERVER='127.0.0.1:19090'
 go install github.com/air-verse/air@v1.61.7
 air -c .air.toml
 ```
 
-打开 `http://127.0.0.1:8080`。`DEV_AUTH` 会绕过首次管理员流程，仅限本机开发。
+打开 `http://127.0.0.1:18080`。`DEV_AUTH` 会绕过首次管理员流程，仅限本机开发。
 
 后端开发统一使用 Air 热重载：
 
@@ -57,14 +66,17 @@ $env:PATH="$env:PATH;$env:USERPROFILE\go\bin"
 go install github.com/air-verse/air@v1.61.7
 $env:NEWNEXUS_DEMO='true'
 $env:NEWNEXUS_DEV_AUTH='true'
+$env:NEWNEXUS_HTTP_ADDR='127.0.0.1:18080'
+$env:NEWNEXUS_GRPC_ADDR='127.0.0.1:19090'
 air -c .air.toml
 
 # 终端 2
 cd web
+$env:VITE_API_PROXY_TARGET='http://127.0.0.1:18080'
 npm run dev
 ```
 
-Vite 将 `/api` 请求代理到本地控制端。提交前仍需运行生产构建，因为控制端正式提供的是 `web/dist`。
+Vite 将 `/api`、`/healthz` 和 `/readyz` 请求代理到 `VITE_API_PROXY_TARGET`，未设置时默认使用 `http://127.0.0.1:18080`。提交前仍需运行生产构建，因为控制端正式提供的是 `web/dist`。
 
 `.air.toml` 监听 Go 与 API YAML 文件，构建到 `tmp/air`，忽略前端产物、依赖目录、测试文件和本地数据库。不要用 `go run ./cmd/server` 代替日常后端开发入口；这样可以保证热重载配置持续可用。
 
@@ -92,7 +104,7 @@ air -c .air.toml
 
 - 管理 API 固定前缀 `/api/v1`，时间使用 UTC RFC 3339，资源 ID 使用 UUID。
 - 列表响应为 `data` 与 `meta.total`；错误响应包含稳定 `error.code` 和面向管理员的消息。
-- 写请求受会话认证和 CSRF 保护；外部厂商写操作应携带幂等语义并记录审计。
+- 浏览器写请求受会话认证和 CSRF 保护；API Key 不使用 Cookie CSRF。外部厂商写操作必须返回 `202`、`job_id`，支持 `Idempotency-Key` 并记录审计。
 - 实时状态使用 `/api/v1/events/stream` SSE，不为高频状态刷新增加布局动画。
 - 运行中的 OpenAPI：`GET /api/v1/openapi.yaml`。
 
@@ -110,8 +122,9 @@ air -c .air.toml
 - `Enroll` 使用一次性注册码换取节点 ID 和长期凭据。
 - `Connect` 是 TLS HTTP/2 双向流，服务端推送任务，Agent 上报心跳和批量结果。
 - Agent 携带 `Authorization: Bearer <token>` 和 `x-agent-version` 元数据。
-- 结果通过任务/结果 ID 幂等；流量受 4 MiB 消息限制与并发信号量背压。
-- Agent 断线指数退避，状态凭据保存在 `--state` 指定文件中。
+- `proto/agent/v1/agent.proto` 定义版本、能力、任务 ACK、结果批次和恢复游标；rc.2 Struct Agent 以降级模式滚动兼容。
+- 结果通过任务/结果 ID 幂等；任务有租约，流量受 4 MiB 消息限制与并发信号量背压。
+- Agent 断线指数退避，凭据保存在 `--state`，结果保存在相邻的 bbolt outbox，收到服务端 ACK 后删除。
 
 本地运行 Agent：
 
@@ -154,7 +167,24 @@ go run ./cmd/agent -- `
 
 ## 8. 前端与动效
 
-界面中文首发，文案经 `web/src/lib/i18n.ts` 管理。运维页面保持紧凑表格、明确状态和差异视图，不创建营销页。
+界面中文首发，文案经 `web/src/lib/i18n.ts` 管理。运维页面采用 Kumo 风格的紧凑表格、明确状态和差异视图，不创建营销页。主题状态由 `web/src/lib/theme.ts` 管理，提供浅色、深色、黑白高对比和跟随系统四种模式；项目名称、最多两个字符的简称和识别色由项目接口持久化。
+
+### Kumo 组件约定
+
+- 固定使用 `@cloudflare/kumo@2.9.2`。入口必须先加载 `@cloudflare/kumo/styles/standalone`，再加载仅负责产品布局与主题桥接的 `src/tool-theme.css`；项目不引入 Tailwind，也不维护第二套组件样式。
+- `src/components/ui.tsx` 是业务薄层，只负责状态中文映射、资源页头、指标带、异步状态和统一确认流程。不要复制 Kumo 内部样式或从 `@base-ui/react` 直接构建第二套组件。
+- React Router 通过 Kumo `LinkProvider` 接入；Toast 统一经 `src/lib/toast.ts` 的 Kumo manager 分发。
+- 浅色、深色和跟随系统主题同步写入 `data-theme`、`data-theme-mode`、Kumo `data-mode` 与 `color-scheme`。黑白模式通过覆盖 Kumo semantic token 实现，不为单个组件写颜色补丁。
+- 核心资源删除使用业务薄层 `AppDeleteResource` 输入资源名称。该组件完全由 Kumo `Dialog`、`Field`、`Input` 和 `Button` 组合，因为 Kumo 2.9.2 的 `DeleteResource` 除删除按钮外未开放中文文案；叶子资源使用危险确认 Dialog，大范围外部删除仍使用 2 秒按住确认。
+- 可比较数据使用 Kumo `Table`，状态丰富对象使用单层 Resource List，总览才使用独立概览卡。禁止嵌套 `LayerCard`。
+
+升级 Kumo 时：
+
+1. 将目标版本精确写入 `web/package.json`，运行 `npm install --save-exact @cloudflare/kumo@<version>`。
+2. 检查 release notes 和本地 `dist/index.d.ts`，确认 Sidebar、Dialog、Toasty、Select、Table 与图表接口兼容。
+3. 运行 `npm run lint`、`npm test`、`npm run build` 和 `npm run test:e2e`。
+4. 在浅色、深色、黑白、跟随系统以及 reduced-motion 下检查 1440、1116、820、390 四档视口。
+5. 不允许为了兼容升级重新加入 Lucide、Sonner、Recharts、旧 Base UI 包或应用层颜色 transition；`check:kumo` 会阻止这些回归。
 
 动效规则：
 
@@ -184,12 +214,12 @@ GitHub Release 发布时，`.github/workflows/release.yml` 会分别交叉编译
 
 浏览器验收至少覆盖 1440px 桌面和 390px 移动端，并检查：首次安装、TOTP、凭据、SaaS、线路发布预览、回滚、键盘焦点、reduced-motion 和横向溢出。
 
-需要真实厂商账户或 PostgreSQL 集群的测试应使用单独环境变量与显式命令，不纳入默认单元测试。
+真实厂商账户测试使用单独环境变量并显式启用。PostgreSQL 集成测试使用 `NEWNEXUS_TEST_POSTGRES_URL`，为每个测试创建隔离 schema，覆盖迁移重复执行、日分区、Agent 结果幂等和多工作器租约；GitHub CI 会启动临时 PostgreSQL 运行这些测试。
 
 ## 10. 当前实现边界
 
 - 首版为模块化单体；`ProviderAdapterV1` 只冻结迁移方向，不加载第三方二进制。
-- SQLite 不支持多副本。PostgreSQL 已支持运行与迁移，但生产级作业分区、租约压力测试和 100 Agent 基线仍需在目标环境验收。
-- 邮件/Webhook 的完整交付通道、恢复码和 API Key 生命周期仍应在生产启用前按组织策略补齐。
+- SQLite 不支持多副本；启动租约会拒绝第二个控制面。PostgreSQL 作业使用 `FOR UPDATE SKIP LOCKED`，原始样本按 UTC 日分区并批量写入，生产容量基线仍需在目标硬件验收。
+- SMTP 与 HMAC Webhook 使用异步通知作业；生产启用前仍应执行真实投递、退避和收件端去重演练。
 - Docker 镜像需要可用的 Docker daemon 才能完成实际构建验收。
 - Release 部署包与 Agent 支持 Linux amd64/arm64；其他操作系统和 CPU 架构不在首版发布范围内。

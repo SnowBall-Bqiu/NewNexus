@@ -9,8 +9,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  quality:
+    name: Verify release source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Test Go control plane and Agent
+        run: go test ./cmd/... ./internal/...
+      - name: Lint and test web console
+        working-directory: web
+        run: |
+          npm ci
+          npm run lint
+          npm run test
+
   packages:
     name: Package Linux ${{ matrix.architecture }}
+    needs: quality
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -20,18 +49,18 @@ jobs:
         architecture: [amd64, arm64]
     steps:
       - name: Check out release tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event.release.tag_name }}
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
@@ -57,20 +86,18 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH="${TARGET_ARCH}" \
             go build -trimpath -ldflags="-s -w" -o "${package_dir}/newnexus-server" ./cmd/server
 
-          for agent_arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH="${agent_arch}" \
-              go build -trimpath -ldflags="-s -w -X main.version=${version}" \
-              -o "${package_dir}/newnexus-agent-linux-${agent_arch}" ./cmd/agent
-          done
+          CGO_ENABLED=0 GOOS=linux GOARCH="${TARGET_ARCH}" \
+            go build -trimpath -ldflags="-s -w -X main.version=${version}" \
+            -o "${package_dir}/newnexus-agent-linux-${TARGET_ARCH}" ./cmd/agent
           cp "${package_dir}/newnexus-agent-linux-${TARGET_ARCH}" "${package_dir}/newnexus-agent"
 
           cp -a web/dist "${package_dir}/web/dist"
-          cp -a api deploy docs README.md LICENSE "${package_dir}/"
+          cp -a api deploy docs proto README.md LICENSE docker-compose.yaml .env.example "${package_dir}/"
           chmod 0755 "${package_dir}/newnexus-server" "${package_dir}"/newnexus-agent*
           tar -C dist -czf "dist/${package_name}.tar.gz" "${package_name}"
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: package-linux-${{ matrix.architecture }}
           path: dist/*.tar.gz
@@ -85,7 +112,7 @@ jobs:
       contents: write
     steps:
       - name: Download deployment packages
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           pattern: package-linux-*
           path: dist
@@ -104,24 +131,25 @@ jobs:
 
   container:
     name: Publish multi-platform container
+    needs: quality
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - name: Check out release tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event.release.tag_name }}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -129,7 +157,7 @@ jobs:
 
       - name: Generate control-plane metadata
         id: control_metadata
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@v5
         with:
           images: ghcr.io/snowball-bqiu/newnexus
           tags: |
@@ -140,7 +168,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}
 
       - name: Build and push control-plane image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
@@ -157,7 +185,7 @@ jobs:
 
       - name: Generate Agent metadata
         id: agent_metadata
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@v5
         with:
           images: ghcr.io/snowball-bqiu/newnexus-agent
           tags: |
@@ -168,7 +196,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}
 
       - name: Build and push Agent image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.agent

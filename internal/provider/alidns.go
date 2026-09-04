@@ -48,7 +48,7 @@ func (a *AliDNS) call(ctx context.Context, credentials Credentials, action strin
 	for key, value := range query {
 		values.Set(key, value)
 	}
-	return a.JSON(ctx, http.MethodGet, "https://alidns.aliyuncs.com/?"+values.Encode(), nil, nil, output)
+	return a.JSONWithRetryPolicy(ctx, http.MethodGet, "https://alidns.aliyuncs.com/?"+values.Encode(), nil, nil, output, strings.HasPrefix(action, "Describe"))
 }
 
 func (a *AliDNS) Validate(ctx context.Context, credentials Credentials) (Capability, error) {
@@ -63,14 +63,23 @@ func (a *AliDNS) Validate(ctx context.Context, credentials Credentials) (Capabil
 }
 
 func (a *AliDNS) ListZones(ctx context.Context, credentials Credentials) ([]Zone, error) {
-	var raw map[string]any
-	if err := a.call(ctx, credentials, "DescribeDomains", map[string]string{"PageNumber": "1", "PageSize": "100"}, &raw); err != nil {
-		return nil, err
-	}
-	items := nestedSlice(raw, "Domains", "Domain")
-	zones := make([]Zone, 0, len(items))
-	for _, item := range items {
-		zones = append(zones, Zone{ID: stringValue(item["DomainId"]), Name: stringValue(item["DomainName"]), Status: "active"})
+	zones := make([]Zone, 0)
+	for page := 1; ; page++ {
+		var raw map[string]any
+		if err := a.call(ctx, credentials, "DescribeDomains", map[string]string{"PageNumber": strconv.Itoa(page), "PageSize": "100"}, &raw); err != nil {
+			return nil, err
+		}
+		if err := aliError(raw); err != nil {
+			return nil, err
+		}
+		items := nestedSlice(raw, "Domains", "Domain")
+		for _, item := range items {
+			zones = append(zones, Zone{ID: stringValue(item["DomainId"]), Name: stringValue(item["DomainName"]), Status: "active"})
+		}
+		total, _ := strconv.Atoi(stringValue(raw["TotalCount"]))
+		if len(items) < 100 || (total > 0 && len(zones) >= total) {
+			break
+		}
 	}
 	return zones, nil
 }
@@ -78,6 +87,9 @@ func (a *AliDNS) ListZones(ctx context.Context, credentials Credentials) ([]Zone
 func (a *AliDNS) ListLines(ctx context.Context, credentials Credentials, zone Zone) ([]Line, error) {
 	var raw map[string]any
 	if err := a.call(ctx, credentials, "DescribeSupportLines", map[string]string{"DomainName": zone.Name}, &raw); err != nil {
+		return nil, err
+	}
+	if err := aliError(raw); err != nil {
 		return nil, err
 	}
 	items := nestedSlice(raw, "RecordLines", "RecordLine")
@@ -92,19 +104,37 @@ func (a *AliDNS) ListLines(ctx context.Context, credentials Credentials, zone Zo
 }
 
 func (a *AliDNS) ListRecords(ctx context.Context, credentials Credentials, zone Zone, name string) ([]Record, error) {
-	params := map[string]string{"DomainName": zone.Name, "PageNumber": "1", "PageSize": "100"}
-	if name != "" {
-		params["RRKeyWord"] = relativeName(name, zone.Name)
-	}
-	var raw map[string]any
-	if err := a.call(ctx, credentials, "DescribeDomainRecords", params, &raw); err != nil {
-		return nil, err
-	}
-	items := nestedSlice(raw, "DomainRecords", "Record")
-	records := make([]Record, 0, len(items))
-	for _, item := range items {
-		ttl, _ := strconv.Atoi(stringValue(item["TTL"]))
-		records = append(records, Record{ID: stringValue(item["RecordId"]), Name: stringValue(item["RR"]) + "." + zone.Name, Type: stringValue(item["Type"]), Value: stringValue(item["Value"]), LineCode: stringValue(item["Line"]), TTL: ttl, Weight: 100, Enabled: stringValue(item["Status"]) != "DISABLE"})
+	records := make([]Record, 0)
+	for page := 1; ; page++ {
+		params := map[string]string{"DomainName": zone.Name, "PageNumber": strconv.Itoa(page), "PageSize": "100"}
+		if name != "" {
+			params["RRKeyWord"] = relativeName(name, zone.Name)
+		}
+		var raw map[string]any
+		if err := a.call(ctx, credentials, "DescribeDomainRecords", params, &raw); err != nil {
+			return nil, err
+		}
+		if err := aliError(raw); err != nil {
+			return nil, err
+		}
+		items := nestedSlice(raw, "DomainRecords", "Record")
+		for _, item := range items {
+			ttl, _ := strconv.Atoi(stringValue(item["TTL"]))
+			rr := stringValue(item["RR"])
+			recordName := rr + "." + zone.Name
+			if rr == "@" || rr == "" {
+				recordName = zone.Name
+			}
+			line := stringValue(item["Line"])
+			if line == "" {
+				line = "default"
+			}
+			records = append(records, Record{ID: stringValue(item["RecordId"]), Name: recordName, Type: stringValue(item["Type"]), Value: stringValue(item["Value"]), LineCode: line, TTL: ttl, Weight: 100, Enabled: stringValue(item["Status"]) != "DISABLE"})
+		}
+		total, _ := strconv.Atoi(stringValue(raw["TotalCount"]))
+		if len(items) < 100 || (total > 0 && len(records) >= total) {
+			break
+		}
 	}
 	return records, nil
 }
@@ -113,7 +143,17 @@ func (a *AliDNS) ApplyChanges(ctx context.Context, credentials Credentials, zone
 	result := make([]Record, 0, len(changes))
 	for _, change := range changes {
 		if change.Operation == "delete" {
-			return nil, fmt.Errorf("AliDNS delete is intentionally disabled until release rollback has a verified snapshot")
+			if change.Before == nil || change.Before.ID == "" {
+				return nil, fmt.Errorf("delete change is missing existing record")
+			}
+			var response struct{ RequestID, Code, Message string }
+			if err := a.call(ctx, credentials, "DeleteDomainRecord", map[string]string{"RecordId": change.Before.ID}, &response); err != nil {
+				return nil, err
+			}
+			if response.Code != "" {
+				return nil, fmt.Errorf("%s: %s", response.Code, response.Message)
+			}
+			continue
 		}
 		if change.After == nil {
 			return nil, fmt.Errorf("change is missing desired record")
@@ -162,4 +202,12 @@ func stringValue(value any) string {
 	}
 	raw, _ := json.Marshal(value)
 	return strings.Trim(string(raw), `"`)
+}
+
+func aliError(raw map[string]any) error {
+	code := stringValue(raw["Code"])
+	if code == "" {
+		return nil
+	}
+	return fmt.Errorf("%s: %s", code, stringValue(raw["Message"]))
 }
