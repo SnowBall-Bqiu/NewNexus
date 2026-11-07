@@ -1,0 +1,16 @@
+ok  	github.com/newnexus/newnexus/cmd/agent	1.027s
+ok  	github.com/newnexus/newnexus/cmd/loadtest	3.356s
+ok  	github.com/newnexus/newnexus/cmd/server	1.044s
+ok  	github.com/newnexus/newnexus/internal/agentclient	20.565s
+ok  	github.com/newnexus/newnexus/internal/agenthub	51.791s
+?   	github.com/newnexus/newnexus/internal/agentproto	[no test files]
+ok  	github.com/newnexus/newnexus/internal/api	123.766s
+ok  	github.com/newnexus/newnexus/internal/auth	3.677s
+ok  	github.com/newnexus/newnexus/internal/control	26.417s
+?   	github.com/newnexus/newnexus/internal/domain	[no test files]
+ok  	github.com/newnexus/newnexus/internal/optimizer	1.248s
+ok  	github.com/newnexus/newnexus/internal/provider	2.054s
+ok  	github.com/newnexus/newnexus/internal/routing	1.018s
+ok  	github.com/newnexus/newnexus/internal/security	1.015s
+ok  	github.com/newnexus/newnexus/internal/store	36.370s
+?   	github.com/newnexus/newnexus/internal/testutil	[no test files]

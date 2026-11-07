@@ -1,0 +1,13 @@
+2026/11/07 11:10:49 INFO timed workload started schema=newnexus_load_78379e185120af34 agents=100 candidates=100000 active=10000 rules=1000 replicas=2 duration=1m0s
+2026/11/07 11:10:59 INFO scheduler pass duration_ms=10204 phases_ms="map[candidate_selection:248 candidates:4266 monitor:81 persist:1391 push:238 routing:7679 rules:1000 schedule_timestamps:563 sites:1 tasks:16798]"
+2026/11/07 11:11:10 INFO scheduler pass duration_ms=4346 phases_ms="map[candidate_selection:214 candidates:4266 monitor:42 persist:1312 push:150 routing:2345 rules:0 schedule_timestamps:271 sites:8 tasks:12798]"
+2026/11/07 11:11:22 INFO scheduler pass duration_ms=11000 phases_ms="map[candidate_selection:1655 candidates:1468 monitor:2404 persist:6506 push:56 routing:201 rules:0 schedule_timestamps:127 sites:48 tasks:4404]"
+2026/11/07 11:11:26 INFO scheduler pass duration_ms=4466 phases_ms="map[candidate_selection:2591 candidates:0 monitor:1731 persist:0 push:0 routing:137 rules:0 schedule_timestamps:4 sites:1 tasks:0]"
+2026/11/07 11:11:27 INFO scheduler pass duration_ms=1028 phases_ms="map[candidate_selection:674 candidates:0 monitor:184 persist:0 push:0 routing:164 rules:0 schedule_timestamps:3 sites:1 tasks:0]"
+2026/11/07 11:11:36 INFO scheduler pass duration_ms=7430 phases_ms="map[candidate_selection:647 candidates:4266 monitor:76 persist:4957 push:246 routing:922 rules:1000 schedule_timestamps:578 sites:1 tasks:16798]"
+2026/11/07 11:11:49 ERROR job persistence failed job_id=144a639d-d160-4210-a12f-56e15d75ad37 error="context canceled"
+2026/11/07 11:11:49 ERROR pending task scan failed error="context canceled"
+2026/11/07 11:11:49 INFO scheduler pass duration_ms=11778 phases_ms=map[monitor:6378]
+2026/11/07 11:11:49 ERROR job scan failed error="context canceled"
+2026/11/07 11:12:04 INFO load test report written path=docs/performance/mysql-optimized-100-100k-10k-1000.json received=50798 acked=50798 pending=0 active_within_30s=8532 replay_growth=0
+2026/11/07 11:12:04 ERROR load test failed error="one or more production acceptance targets were not met; see the JSON report"

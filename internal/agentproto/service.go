@@ -1,97 +1,82 @@
+// Package agentproto defines the agent.v1 wire contract without a local protoc dependency.
 package agentproto
 
 import (
 	"context"
-
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-const ServiceName = "agent.v1.AgentService"
-
-type Server interface {
+type AgentServiceServer interface {
 	Enroll(context.Context, *structpb.Struct) (*structpb.Struct, error)
-	Connect(ConnectServer) error
+	Connect(AgentService_ConnectServer) error
 }
-
-type ConnectServer interface {
+type AgentService_ConnectServer interface {
 	Send(*structpb.Struct) error
 	Recv() (*structpb.Struct, error)
 	grpc.ServerStream
 }
-
 type connectServer struct{ grpc.ServerStream }
 
-func (s *connectServer) Send(message *structpb.Struct) error { return s.ServerStream.SendMsg(message) }
+func (s *connectServer) Send(m *structpb.Struct) error { return s.ServerStream.SendMsg(m) }
 func (s *connectServer) Recv() (*structpb.Struct, error) {
-	message := new(structpb.Struct)
-	if err := s.ServerStream.RecvMsg(message); err != nil {
+	m := new(structpb.Struct)
+	if err := s.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
-	return message, nil
+	return m, nil
+}
+func RegisterAgentServiceServer(s grpc.ServiceRegistrar, impl AgentServiceServer) {
+	s.RegisterService(&AgentService_ServiceDesc, impl)
 }
 
-func RegisterServer(server grpc.ServiceRegistrar, implementation Server) {
-	server.RegisterService(&grpc.ServiceDesc{
-		ServiceName: ServiceName,
-		HandlerType: (*Server)(nil),
-		Methods:     []grpc.MethodDesc{{MethodName: "Enroll", Handler: enrollHandler}},
-		Streams:     []grpc.StreamDesc{{StreamName: "Connect", Handler: connectHandler, ServerStreams: true, ClientStreams: true}},
-		Metadata:    "agent/v1/agent.proto",
-	}, implementation)
-}
-
-func enrollHandler(srv any, ctx context.Context, decoder func(any) error, interceptor grpc.UnaryServerInterceptor) (any, error) {
-	request := new(structpb.Struct)
-	if err := decoder(request); err != nil {
+var AgentService_ServiceDesc = grpc.ServiceDesc{ServiceName: "agent.v1.AgentService", HandlerType: (*AgentServiceServer)(nil), Methods: []grpc.MethodDesc{{MethodName: "Enroll", Handler: func(s interface{}, ctx context.Context, dec func(interface{}) error, i grpc.UnaryServerInterceptor) (interface{}, error) {
+	m := new(structpb.Struct)
+	if err := dec(m); err != nil {
 		return nil, err
 	}
-	if interceptor == nil {
-		return srv.(Server).Enroll(ctx, request)
+	if i == nil {
+		return s.(AgentServiceServer).Enroll(ctx, m)
 	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/" + ServiceName + "/Enroll"}
-	handler := func(ctx context.Context, req any) (any, error) {
-		return srv.(Server).Enroll(ctx, req.(*structpb.Struct))
+	return i(ctx, m, &grpc.UnaryServerInfo{Server: s, FullMethod: "/agent.v1.AgentService/Enroll"}, func(ctx context.Context, r interface{}) (interface{}, error) {
+		return s.(AgentServiceServer).Enroll(ctx, r.(*structpb.Struct))
+	})
+}}}, Streams: []grpc.StreamDesc{{StreamName: "Connect", Handler: func(s interface{}, stream grpc.ServerStream) error {
+	return s.(AgentServiceServer).Connect(&connectServer{stream})
+}, ServerStreams: true, ClientStreams: true}}, Metadata: "proto/agent/v1/agent.proto"}
+
+type AgentServiceClient interface {
+	Enroll(context.Context, *structpb.Struct, ...grpc.CallOption) (*structpb.Struct, error)
+	Connect(context.Context, ...grpc.CallOption) (AgentService_ConnectClient, error)
+}
+type agentClient struct{ c grpc.ClientConnInterface }
+
+func NewAgentServiceClient(c grpc.ClientConnInterface) AgentServiceClient { return &agentClient{c} }
+func (c *agentClient) Enroll(ctx context.Context, m *structpb.Struct, o ...grpc.CallOption) (*structpb.Struct, error) {
+	out := new(structpb.Struct)
+	err := c.c.Invoke(ctx, "/agent.v1.AgentService/Enroll", m, out, o...)
+	return out, err
+}
+func (c *agentClient) Connect(ctx context.Context, o ...grpc.CallOption) (AgentService_ConnectClient, error) {
+	s, e := c.c.NewStream(ctx, &AgentService_ServiceDesc.Streams[0], "/agent.v1.AgentService/Connect", o...)
+	if e != nil {
+		return nil, e
 	}
-	return interceptor(ctx, request, info, handler)
+	return &connectClient{s}, nil
 }
 
-func connectHandler(srv any, stream grpc.ServerStream) error {
-	return srv.(Server).Connect(&connectServer{ServerStream: stream})
-}
-
-type Client struct{ connection grpc.ClientConnInterface }
-
-func NewClient(connection grpc.ClientConnInterface) *Client { return &Client{connection: connection} }
-func (c *Client) Enroll(ctx context.Context, request *structpb.Struct, options ...grpc.CallOption) (*structpb.Struct, error) {
-	response := new(structpb.Struct)
-	if err := c.connection.Invoke(ctx, "/"+ServiceName+"/Enroll", request, response, options...); err != nil {
-		return nil, err
-	}
-	return response, nil
-}
-func (c *Client) Connect(ctx context.Context, options ...grpc.CallOption) (ConnectClient, error) {
-	descriptor := &grpc.StreamDesc{StreamName: "Connect", ServerStreams: true, ClientStreams: true}
-	stream, err := c.connection.NewStream(ctx, descriptor, "/"+ServiceName+"/Connect", options...)
-	if err != nil {
-		return nil, err
-	}
-	return &connectClient{ClientStream: stream}, nil
-}
-
-type ConnectClient interface {
+type AgentService_ConnectClient interface {
 	Send(*structpb.Struct) error
 	Recv() (*structpb.Struct, error)
-	CloseSend() error
 	grpc.ClientStream
 }
 type connectClient struct{ grpc.ClientStream }
 
-func (c *connectClient) Send(message *structpb.Struct) error { return c.ClientStream.SendMsg(message) }
+func (c *connectClient) Send(m *structpb.Struct) error { return c.ClientStream.SendMsg(m) }
 func (c *connectClient) Recv() (*structpb.Struct, error) {
-	message := new(structpb.Struct)
-	if err := c.ClientStream.RecvMsg(message); err != nil {
+	m := new(structpb.Struct)
+	if err := c.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
-	return message, nil
+	return m, nil
 }

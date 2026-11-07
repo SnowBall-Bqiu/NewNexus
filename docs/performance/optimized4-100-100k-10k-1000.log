@@ -1,0 +1,13 @@
+2026/11/07 00:36:23 INFO timed workload started schema=newnexus_load_6761ce258fe03d23 agents=100 candidates=100000 active=10000 rules=1000 replicas=2 duration=1m0s
+2026/11/07 00:36:34 INFO scheduler pass duration_ms=10407 phases_ms="map[candidate_selection:1030 candidates:4266 monitor:85 persist:1253 push:243 routing:2518 rules:1000 schedule_timestamps:5273 sites:3 tasks:16798]"
+2026/11/07 00:36:38 INFO scheduler pass duration_ms=3295 phases_ms="map[candidate_selection:1125 candidates:4266 monitor:24 persist:900 push:171 routing:451 rules:0 schedule_timestamps:619 sites:3 tasks:12798]"
+2026/11/07 00:36:45 INFO scheduler pass duration_ms=6511 phases_ms="map[candidate_selection:4086 candidates:1468 monitor:1716 persist:333 push:62 routing:100 rules:0 schedule_timestamps:210 sites:1 tasks:4404]"
+2026/11/07 00:36:48 INFO scheduler pass duration_ms=2127 phases_ms="map[candidate_selection:1481 candidates:0 monitor:566 persist:0 push:0 routing:77 rules:0 schedule_timestamps:0 sites:1 tasks:0]"
+2026/11/07 00:36:50 INFO scheduler pass duration_ms=1447 phases_ms="map[candidate_selection:1335 candidates:0 monitor:20 persist:0 push:0 routing:89 rules:0 schedule_timestamps:0 sites:2 tasks:0]"
+2026/11/07 00:36:54 INFO scheduler pass duration_ms=1149 phases_ms="map[candidate_selection:1027 candidates:0 monitor:37 persist:0 push:0 routing:81 rules:0 schedule_timestamps:0 sites:2 tasks:0]"
+2026/11/07 00:37:02 INFO scheduler pass duration_ms=3895 phases_ms="map[candidate_selection:1279 candidates:4266 monitor:14 persist:1115 push:217 routing:691 rules:1000 schedule_timestamps:574 sites:1 tasks:16798]"
+2026/11/07 00:37:07 INFO scheduler pass duration_ms=3687 phases_ms="map[candidate_selection:1681 candidates:0 monitor:1478 persist:0 push:0 routing:523 rules:0 schedule_timestamps:0 sites:3 tasks:0]"
+2026/11/07 00:37:12 INFO scheduler pass duration_ms=3431 phases_ms="map[candidate_selection:1480 candidates:4266 monitor:111 persist:978 push:175 routing:74 rules:0 schedule_timestamps:608 sites:2 tasks:12798]"
+2026/11/07 00:37:15 INFO scheduler pass duration_ms=2178 phases_ms="map[candidate_selection:1848 candidates:0 monitor:238 persist:0 push:0 routing:89 rules:0 schedule_timestamps:0 sites:1 tasks:0]"
+2026/11/07 00:37:20 INFO scheduler pass duration_ms=1884 phases_ms="map[candidate_selection:1179 candidates:1468 monitor:21 persist:328 push:105 routing:86 rules:0 schedule_timestamps:161 sites:1 tasks:4404]"
+2026/11/07 00:37:28 INFO load test report written path=docs/performance/optimized4-100-100k-10k-1000.json received=68000 acked=68000 pending=0 active_within_30s=10000 replay_growth=0

@@ -1,88 +1,46 @@
 param(
-    [string]$Version = "0.1.0",
-    [string]$OutputDirectory = "dist"
+    [string]$OutputDirectory = '',
+    [switch]$SkipDependencyInstall
 )
-
-$ErrorActionPreference = "Stop"
-$repository = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$output = [System.IO.Path]::GetFullPath((Join-Path $repository $OutputDirectory))
-if (-not $output.StartsWith($repository, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "Output directory must stay inside the repository"
-}
-
-Push-Location $repository
+$ErrorActionPreference = 'Stop'
+$projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+if (!$OutputDirectory) { $OutputDirectory = Join-Path $projectRoot ('output/release-' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
+$releaseRoot = [IO.Path]::GetFullPath($OutputDirectory)
+if (Test-Path -LiteralPath $releaseRoot) { throw 'OutputDirectory must be a new path to avoid overwriting an existing release.' }
+New-Item -ItemType Directory -Path $releaseRoot | Out-Null
+$oldGoOs = $env:GOOS; $oldGoArch = $env:GOARCH; $oldCgo = $env:CGO_ENABLED
+Push-Location $projectRoot
 try {
-    Push-Location "web"
+    Push-Location (Join-Path $projectRoot 'web')
     try {
-        npm run build
-        if ($LASTEXITCODE -ne 0) {
-            throw "Frontend build failed with exit code $LASTEXITCODE"
-        }
-    }
-    finally {
-        Pop-Location
-    }
-
-    New-Item -ItemType Directory -Force -Path $output | Out-Null
-    $targets = @("amd64")
-    $archives = @()
-
-    foreach ($architecture in $targets) {
-        $name = "newnexus-v$Version-linux-$architecture"
-        $stage = Join-Path $output $name
-        $resolvedOutputPrefix = $output.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
-        if (-not $stage.StartsWith($resolvedOutputPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-            throw "Unsafe staging path: $stage"
-        }
-        if (Test-Path -LiteralPath $stage) {
-            Remove-Item -Recurse -Force -LiteralPath $stage
-        }
-        New-Item -ItemType Directory -Force -Path $stage | Out-Null
-        New-Item -ItemType Directory -Force -Path (Join-Path $stage "web") | Out-Null
-
-        $env:CGO_ENABLED = "0"
-        $env:GOOS = "linux"
+        if (!$SkipDependencyInstall) { & npm ci --registry=https://registry.npmjs.org --no-audit --no-fund; if ($LASTEXITCODE) { throw 'npm ci failed' } }
+        & npm run build; if ($LASTEXITCODE) { throw 'Frontend build failed' }
+    } finally { Pop-Location }
+    & (Join-Path $PSScriptRoot 'build-agent-downloads.ps1')
+    $env:CGO_ENABLED = '0'; $env:GOOS = 'linux'
+    foreach ($architecture in @('amd64', 'arm64')) {
         $env:GOARCH = $architecture
-        go build -trimpath -ldflags="-s -w" -o (Join-Path $stage "newnexus-server") ./cmd/server
-        if ($LASTEXITCODE -ne 0) {
-            throw "Server build failed for linux/$architecture with exit code $LASTEXITCODE"
+        $destination = Join-Path $releaseRoot "linux-$architecture"
+        New-Item -ItemType Directory -Path $destination | Out-Null
+        & go build -trimpath '-ldflags=-s -w' -o (Join-Path $destination 'newnexus-server') ./cmd/server
+        if ($LASTEXITCODE) { throw "Server $architecture build failed" }
+        Copy-Item -LiteralPath (Join-Path $projectRoot "web/dist/agent/newnexus-agent-linux-$architecture") -Destination (Join-Path $destination 'newnexus-agent')
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'web/dist') -Destination (Join-Path $destination 'web') -Recurse
+        foreach ($directory in @('docs', 'api')) { Copy-Item -LiteralPath (Join-Path $projectRoot $directory) -Destination (Join-Path $destination $directory) -Recurse }
+        foreach ($file in @('deploy/Caddyfile.example', 'deploy/newnexus.env.example', 'deploy/systemd/newnexus.service', 'deploy/tls/README.md')) {
+            $target = Join-Path $destination $file
+            New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $target
         }
-        $env:GOARCH = $architecture
-        $agentName = "newnexus-agent-linux-$architecture"
-        go build -trimpath -ldflags="-s -w -X main.version=$Version" -o (Join-Path $stage $agentName) ./cmd/agent
-        if ($LASTEXITCODE -ne 0) {
-            throw "Agent build failed for linux/$architecture with exit code $LASTEXITCODE"
-        }
-        Copy-Item -LiteralPath (Join-Path $stage "newnexus-agent-linux-$architecture") -Destination (Join-Path $stage "newnexus-agent")
-
-        Copy-Item -Recurse -LiteralPath "web\dist" -Destination (Join-Path $stage "web\dist")
-        Copy-Item -Recurse -LiteralPath "api" -Destination (Join-Path $stage "api")
-        Copy-Item -Recurse -LiteralPath "deploy" -Destination (Join-Path $stage "deploy")
-        Copy-Item -Recurse -LiteralPath "docs" -Destination (Join-Path $stage "docs")
-        Copy-Item -Recurse -LiteralPath "proto" -Destination (Join-Path $stage "proto")
-        Copy-Item -LiteralPath "README.md", "LICENSE", "docker-compose.yaml", ".env.example" -Destination $stage
-
-        $archive = Join-Path $output "$name.tar.gz"
-        if (Test-Path -LiteralPath $archive) {
-            Remove-Item -Force -LiteralPath $archive
-        }
-        tar -C $output -czf $archive $name
-        if ($LASTEXITCODE -ne 0) {
-            throw "Archive creation failed for $name with exit code $LASTEXITCODE"
-        }
-        $archives += $archive
+        New-Item -ItemType Directory -Path (Join-Path $destination 'scripts'), (Join-Path $destination 'cmd/agent') | Out-Null
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts/sqlite-backup.py') -Destination (Join-Path $destination 'scripts/sqlite-backup.py')
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'cmd/agent/newnexus-agent.service') -Destination (Join-Path $destination 'cmd/agent/newnexus-agent.service')
+        foreach ($file in @('README.md', 'LICENSE')) { Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination (Join-Path $destination $file) }
+        $checksums = foreach ($file in @('newnexus-server', 'newnexus-agent', 'web/agent/newnexus-agent-linux-amd64', 'web/agent/newnexus-agent-linux-arm64')) { ((Get-FileHash -LiteralPath (Join-Path $destination $file) -Algorithm SHA256).Hash.ToLowerInvariant()) + '  ' + $file }
+        Set-Content -LiteralPath (Join-Path $destination 'SHA256SUMS') -Value $checksums -Encoding ascii
     }
-
-    $checksumPath = Join-Path $output "SHA256SUMS"
-    $lines = foreach ($archive in $archives) {
-        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
-        "$hash  $([System.IO.Path]::GetFileName($archive))"
-    }
-    [System.IO.File]::WriteAllLines($checksumPath, $lines, [System.Text.UTF8Encoding]::new($false))
-    Write-Output "Release artifacts written to $output"
-    $artifacts = @($archives) + @($checksumPath)
-    Get-Item -LiteralPath $artifacts | Select-Object Name, Length, LastWriteTime
-}
-finally {
+    Write-Output "Linux release directories: $releaseRoot"
+} finally {
+    $env:GOOS = $oldGoOs; $env:GOARCH = $oldGoArch; $env:CGO_ENABLED = $oldCgo
     Pop-Location
 }

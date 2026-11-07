@@ -1,115 +1,96 @@
-name: newnexus # 定义 Compose 项目名称，统一容器、网络和数据卷前缀
-
-x-control-plane: &control-plane # 定义控制端公共配置，供 SQLite 与 PostgreSQL 模式复用
-  image: ghcr.io/snowball-bqiu/newnexus:latest # 使用已经发布到 GHCR 的 NewNexus 控制端镜像
-  platform: linux/amd64 # 此示例默认部署 amd64，arm64 用户可删除本行让 Docker 自动选择架构
-  restart: unless-stopped # 控制端异常退出后自动重启，手工停止时保持停止
-  environment: &control-environment # 定义两个数据库模式共享的控制端环境变量
-    NEWNEXUS_MASTER_KEY: "${NEWNEXUS_MASTER_KEY:?请在.env中设置NEWNEXUS_MASTER_KEY}" # 注入不可丢失的凭据加密主密钥
-    NEWNEXUS_HTTP_ADDR: ":8080" # 在容器 8080 端口监听前端、REST、SSE 与健康检查
-    NEWNEXUS_GRPC_ADDR: ":9090" # 在容器 9090 端口监听 Agent gRPC 双向流
-    NEWNEXUS_GRPC_TLS_CERT_FILE: "${NEWNEXUS_GRPC_TLS_CERT_FILE-/run/newnexus-tls/grpc.crt}" # 默认加载容器内置 gRPC TLS 证书；仅私网 h2c 模式显式设为空
-    NEWNEXUS_GRPC_TLS_KEY_FILE: "${NEWNEXUS_GRPC_TLS_KEY_FILE-/run/newnexus-tls/grpc.key}" # 默认加载与证书匹配的私钥；仅私网 h2c 模式显式设为空
-    NEWNEXUS_GRPC_ALLOW_H2C: "${NEWNEXUS_GRPC_ALLOW_H2C:-false}" # 生产默认禁止明文 HTTP/2，只有受控私网反向代理才可显式开启
-    NEWNEXUS_PUBLIC_URL: "${NEWNEXUS_PUBLIC_URL:-http://localhost:8080}" # 设置浏览器和 Agent 安装脚本访问的控制端外部地址
-    NEWNEXUS_AGENT_PUBLIC_SERVER: "${NEWNEXUS_AGENT_PUBLIC_SERVER:-localhost:9090}" # 设置一键安装命令中使用的公网 gRPC 地址
-    NEWNEXUS_SECURE_COOKIES: "${NEWNEXUS_SECURE_COOKIES:-false}" # 使用 HTTPS 时必须改为 true 以启用 Secure Cookie
-    NEWNEXUS_ENABLE_HSTS: "${NEWNEXUS_ENABLE_HSTS:-false}" # 确认全站 HTTPS 后改为 true 以启用 HSTS
-    NEWNEXUS_TRUSTED_PROXY_CIDRS: "${NEWNEXUS_TRUSTED_PROXY_CIDRS:-}" # 仅在明确可信的反向代理网段中解析 X-Forwarded-For
-    NEWNEXUS_SCHEDULER_ENABLED: "true" # 在该控制端副本中运行探测与线路调度器
-    NEWNEXUS_PROBE_INTERVAL: "30s" # 每 30 秒执行目标调度、线路仲裁与通知检查，指标维护另按 5 分钟运行
-    NEWNEXUS_INVENTORY_INTERVAL: "6h" # 每 6 小时调度库存候选发现探测
-    NEWNEXUS_RANKING_INTERVAL: "5m" # 每 5 分钟调度榜单候选复测
-    NEWNEXUS_ACTIVE_INTERVAL: "30s" # 每 30 秒调度活动候选和线路目标健康检查
-    NEWNEXUS_AGENT_BINARY_PATH: "/app/newnexus-agent-linux-{arch}" # 允许主控按目标架构提供 Agent 自动安装二进制
-    NEWNEXUS_AGENT_TLS_SHA256: "${NEWNEXUS_AGENT_TLS_SHA256:-}" # 可选覆盖安装命令中的证书指纹；留空时主控从已加载证书自动计算
-    NEWNEXUS_PROVIDER_MAX_RETRIES: "${NEWNEXUS_PROVIDER_MAX_RETRIES:-3}" # 配置厂商 API 临时错误的最大退避重试次数
-    NEWNEXUS_PROVIDER_MIN_INTERVAL: "${NEWNEXUS_PROVIDER_MIN_INTERVAL:-100ms}" # 限制每个厂商适配器的最小请求间隔，避免击穿配额
-    NEWNEXUS_VERSION: "${NEWNEXUS_VERSION:-latest}" # 在健康状态和界面中展示当前部署版本
-  ports: # 将 HTTP 与 gRPC 端口发布到宿主机回环地址，交给反向代理提供 TLS
-    - "127.0.0.1:${NEWNEXUS_HTTP_PORT:-8080}:8080" # 发布控制台、REST、SSE 与健康检查端口
-    - "${NEWNEXUS_GRPC_BIND_IP:-0.0.0.0}:${NEWNEXUS_GRPC_PORT:-9090}:9090" # 以内置 TLS 发布 Agent gRPC 端口；防火墙仅允许受管节点访问
-  healthcheck: # 定义控制端数据库就绪检查
-    test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"] # 调用 readyz，数据库迁移完成后才返回成功
-    interval: 15s # 每 15 秒执行一次控制端就绪检查
-    timeout: 5s # 单次就绪检查最多等待 5 秒
-    retries: 5 # 连续失败 5 次后把控制端标记为不健康
-    start_period: 20s # 为数据库迁移和控制端启动预留 20 秒
-
-services: # 定义控制端、数据库与可选本机 Agent 服务
-  control-plane-sqlite: # 定义轻量 SQLite 单机控制端
-    <<: *control-plane # 复用上方控制端公共镜像、端口和健康检查
-    container_name: newnexus-control-plane-sqlite # 固定 SQLite 控制端容器名称，便于查看日志和执行升级
-    profiles: ["sqlite"] # 只有启用 sqlite profile 时才启动该服务
-    environment: # 覆盖 SQLite 模式需要的数据库环境变量
-      <<: *control-environment # 继承控制端公共环境变量
-      NEWNEXUS_DATABASE_DRIVER: sqlite # 选择 SQLite 纯 Go 数据库驱动
-      NEWNEXUS_DATABASE_URL: /data/newnexus.db # 把 SQLite 数据库写入持久化数据卷
-      NEWNEXUS_JOB_WORKERS: "1" # SQLite 模式只运行一个作业工作器
-    volumes: # 挂载 SQLite 数据与备份目录
-      - newnexus-data:/data # 保存数据库、运行数据和本地备份
-      - "${NEWNEXUS_GRPC_TLS_DIR:-./deploy/tls}:/run/newnexus-tls:ro" # 只读挂载与公网 gRPC 域名匹配的证书和私钥目录
-
-  control-plane-postgres: # 定义生产 PostgreSQL 控制端
-    <<: *control-plane # 复用上方控制端公共镜像、端口和健康检查
-    container_name: newnexus-control-plane-postgres # 固定 PostgreSQL 控制端容器名称，避免 Compose 配置冲突
-    profiles: ["postgres"] # 只有启用 postgres profile 时才启动该服务
-    depends_on: # 声明控制端必须等待 PostgreSQL 就绪
-      postgres: # 引用下方 PostgreSQL 服务
-        condition: service_healthy # 只有数据库健康检查通过后才启动控制端
-    environment: # 覆盖 PostgreSQL 模式需要的数据库环境变量
-      <<: *control-environment # 继承控制端公共环境变量
-      NEWNEXUS_DATABASE_DRIVER: postgres # 选择 PostgreSQL 数据库驱动
-      NEWNEXUS_DATABASE_URL: "postgres://newnexus:${POSTGRES_PASSWORD:?请在.env中设置POSTGRES_PASSWORD}@postgres:5432/newnexus?sslmode=disable" # 通过 Compose 私有网络连接数据库
-      NEWNEXUS_JOB_WORKERS: "${NEWNEXUS_JOB_WORKERS:-4}" # 允许 PostgreSQL 模式并行执行外部写作业
-    volumes: # 挂载控制端 gRPC TLS 证书目录
-      - "${NEWNEXUS_GRPC_TLS_DIR:-./deploy/tls}:/run/newnexus-tls:ro" # 只读挂载 grpc.crt 与 grpc.key，主控会自动计算证书指纹
-
-  postgres: # 定义 NewNexus 生产数据库
-    image: postgres:17-alpine # 使用 PostgreSQL 17 官方精简镜像
-    platform: linux/amd64 # 与本示例的默认 amd64 部署架构保持一致
-    container_name: newnexus-postgres # 固定数据库容器名称以便运维和备份
-    profiles: ["postgres"] # 仅在 PostgreSQL 模式中启动数据库
-    restart: unless-stopped # 数据库异常退出后自动重启
-    environment: # 初始化数据库名称、用户和密码
-      POSTGRES_DB: newnexus # 创建 NewNexus 专用数据库
-      POSTGRES_USER: newnexus # 创建 NewNexus 专用数据库用户
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?请在.env中设置POSTGRES_PASSWORD}" # 从 .env 注入数据库强密码
-    volumes: # 挂载 PostgreSQL 数据目录
-      - postgres-data:/var/lib/postgresql/data # 持久化数据库文件，升级容器不会丢失数据
-    healthcheck: # 定义 PostgreSQL 就绪检查
-      test: ["CMD-SHELL", "pg_isready -U newnexus -d newnexus"] # 使用 pg_isready 检查目标数据库
-      interval: 10s # 每 10 秒检查一次数据库
-      timeout: 5s # 单次数据库检查最多等待 5 秒
-      retries: 10 # 连续失败 10 次后标记数据库不健康
-      start_period: 20s # 为首次初始化数据库预留 20 秒
-
-  agent: # 定义可选的本机 Docker 探测 Agent
-    image: ghcr.io/snowball-bqiu/newnexus-agent:latest # 使用已经发布到 GHCR 的 Agent 镜像
-    platform: linux/amd64 # 此示例默认安装 amd64 Agent
-    container_name: newnexus-agent # 固定 Agent 容器名称，便于查看心跳和探测日志
-    profiles: ["agent"] # 只有显式启用 agent profile 时才启动本机 Agent
-    restart: unless-stopped # Agent 断线或异常退出后自动重启并恢复 outbox
-    environment: # 配置 Agent 注册、连接与本地持久化参数
-      NEWNEXUS_AGENT_SERVER: "${NEWNEXUS_AGENT_SERVER:-host.docker.internal:9090}" # 连接宿主机反向代理或控制端 gRPC 地址
-      NEWNEXUS_AGENT_ENROLL_CODE: "${NEWNEXUS_AGENT_ENROLL_CODE:?请先在控制台生成一次性注册码}" # 注入控制台只显示一次的 Agent 注册码
-      NEWNEXUS_AGENT_NAME: "${NEWNEXUS_AGENT_NAME:-local-docker-agent}" # 设置控制台展示的 Agent 名称
-      NEWNEXUS_AGENT_PROTOCOLS: "${NEWNEXUS_AGENT_PROTOCOLS:-tcp,http}" # 允许 Agent 执行 TCP 与 HTTP 探测
-      NEWNEXUS_AGENT_STATE: /state/agent-state.json # 将轮换后的长期节点凭据保存到数据卷
-      NEWNEXUS_AGENT_TLS_SHA256: "${NEWNEXUS_AGENT_TLS_SHA256:-}" # 可选固定服务端叶证书 SHA-256 指纹，每次连接都会校验
-      NEWNEXUS_AGENT_RECOVERY_CODE: "${NEWNEXUS_AGENT_RECOVERY_CODE:-}" # 节点凭据过期时使用控制台生成的一次性恢复码重新注册
-      NEWNEXUS_AGENT_INSECURE: "${NEWNEXUS_AGENT_INSECURE:-false}" # 生产 gRPC 使用 TLS，因此默认禁止明文连接
-    volumes: # 挂载 Agent 凭据和 bbolt 结果 outbox
-      - agent-state:/state # 持久化节点凭据和断线期间的探测结果
-    extra_hosts: # 允许 Linux Docker 容器访问宿主机 gRPC 端口
-      - "host.docker.internal:host-gateway" # 将 host.docker.internal 映射到 Docker 宿主机网关
-
-volumes: # 声明由 Docker 管理的持久化卷
-  newnexus-data: # 保存 SQLite 数据库与控制端运行数据
-  postgres-data: # 保存 PostgreSQL 数据目录
-  agent-state: # 保存 Agent 节点凭据与 bbolt outbox
-
-# PostgreSQL 启动命令：docker compose --profile postgres up -d # 展示生产数据库模式的启动方式
-# SQLite 启动命令：docker compose --profile sqlite up -d # 展示轻量单机模式的启动方式
-# 可选本机 Agent：docker compose --profile sqlite --profile agent up -d # 展示填写注册码后的本机 Agent 启动方式
-# 远程 Agent 自动安装：在控制台“探测节点”复制生成的 curl 命令并粘贴到目标 Linux 主机执行 # 说明远程自动化安装入口
+name: newnexus
+x-control: &control
+  image: ${NEWNEXUS_IMAGE:-newnexus:local}
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: [/tmp:size=64m,mode=1777]
+  stop_grace_period: 30s
+  ports:
+    - '${NEWNEXUS_HTTPS_PORT:-8443}:8080'
+    - '${NEWNEXUS_GRPC_PORT:-9443}:9090'
+  environment: &control-env
+    NEWNEXUS_ENV: production
+    NEWNEXUS_MASTER_KEY: ${NEWNEXUS_MASTER_KEY:?Set NEWNEXUS_MASTER_KEY in .env}
+    NEWNEXUS_SETUP_TOKEN: ${NEWNEXUS_SETUP_TOKEN:-}
+    NEWNEXUS_TLS_CERT: /tls/fullchain.pem
+    NEWNEXUS_TLS_KEY: /tls/privkey.pem
+  networks:
+    default:
+      aliases: [control-plane]
+services:
+  server-sqlite:
+    <<: *control
+    profiles: [sqlite]
+    volumes:
+      - sqlite-data:/data
+      - ${NEWNEXUS_TLS_DIR:-./deploy/tls}:/tls:ro
+  mysql:
+    image: mysql:8.4
+    profiles: [mysql]
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_bin
+      - --default-time-zone=+00:00
+      - --default-storage-engine=InnoDB
+      - --innodb-buffer-pool-size=${MYSQL_BUFFER_POOL_SIZE:-512M}
+      - --innodb-flush-log-at-trx-commit=1
+      - --sync-binlog=1
+    environment:
+      MYSQL_DATABASE: newnexus
+      MYSQL_USER: newnexus
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_RANDOM_ROOT_PASSWORD: '1'
+    volumes: [mysql-data:/var/lib/mysql]
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=tcp --host=127.0.0.1 --user="$${MYSQL_USER}" --database="$${MYSQL_DATABASE}" --execute="SELECT 1" --silent --skip-column-names']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    security_opt: [no-new-privileges:true]
+  server-mysql:
+    <<: *control
+    profiles: [mysql]
+    environment:
+      <<: *control-env
+      NEWNEXUS_DATABASE_URL: mysql://newnexus:${MYSQL_PASSWORD}@mysql:3306/newnexus?tls=false
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - control-data:/data
+      - ${NEWNEXUS_TLS_DIR:-./deploy/tls}:/tls:ro
+  agent:
+    image: ${NEWNEXUS_AGENT_IMAGE:-newnexus-agent:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    profiles: [agent]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:size=32m,mode=1777]
+    environment:
+      NEWNEXUS_AGENT_SERVER: control-plane:9090
+      NEWNEXUS_AGENT_TLS_SERVER_NAME: ${NEWNEXUS_TLS_SERVER_NAME:-newnexus.example.com}
+      NEWNEXUS_AGENT_CA_FILE: /tls/ca.pem
+      NEWNEXUS_AGENT_ENROLLMENT_TOKEN: ${NEWNEXUS_AGENT_ENROLLMENT_TOKEN:-}
+      NEWNEXUS_AGENT_NAME: compose-local
+      NEWNEXUS_AGENT_ALLOWED_PORTS: ${NEWNEXUS_AGENT_ALLOWED_PORTS:-80,443}
+    volumes:
+      - agent-data:/data
+      - ${NEWNEXUS_TLS_DIR:-./deploy/tls}/fullchain.pem:/tls/ca.pem:ro
+volumes:
+  sqlite-data:
+  control-data:
+  mysql-data:
+  agent-data:

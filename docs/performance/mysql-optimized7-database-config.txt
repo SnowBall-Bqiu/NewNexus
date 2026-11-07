@@ -1,0 +1,7 @@
+*************************** 1. row ***************************
+           captured_utc: 2026-11-07 05:03:51.047445
+                version: 8.4.13
+       buffer_pool_size: 536870912
+flush_log_at_trx_commit: 1
+            sync_binlog: 1
+                log_bin: 1

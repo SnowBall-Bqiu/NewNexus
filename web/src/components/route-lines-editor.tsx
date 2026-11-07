@@ -1,0 +1,56 @@
+import { t } from '@/lib/i18n';
+import { useQuery } from '@tanstack/react-query';
+import { Plus, Trash2 } from 'lucide-react';
+import { api, list, type Resource } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+const str = (value: unknown) => value == null ? '' : String(value);
+const object = (value: unknown): Record<string, unknown> => value && typeof value === 'object' ? value as Record<string, unknown> : {};
+const array = (value: unknown): Resource[] => Array.isArray(value) ? value as Resource[] : [];
+
+export function RouteLinesEditor({ value, values, onChange }: { value: unknown; values: Record<string, unknown>; onChange: (value: unknown) => void }) {
+  const lines = array(value); const connectionId = str(values.dnsConnectionId); const zoneId = str(values.zoneId);
+  const connection = useQuery({ queryKey: ['connection-detail', connectionId], queryFn: () => api<Resource>(`/connections/${connectionId}`), enabled: Boolean(connectionId) });
+  const available = useQuery({ queryKey: ['provider-lines', connectionId, zoneId], queryFn: () => list<Resource>(`/connections/${connectionId}/lines?zone_id=${encodeURIComponent(zoneId)}`), enabled: Boolean(connectionId && zoneId) });
+  const groups = useQuery({ queryKey: ['options', '/node-groups'], queryFn: () => list<Resource>('/node-groups?limit=500') });
+  const settings = useQuery({ queryKey: ['settings'], queryFn: () => list<{ key: string; value: unknown }>('/settings') });
+  const inheritedThreshold = (key: string) => { const value = settings.data?.data.find((item) => item.key === key)?.value; return typeof value === 'number' ? t('routing.threshold.inheritValue', { value }) : t('routing.threshold.inherit'); };
+  const capability = object(object(connection.data?.zoneCapabilities)[zoneId]);
+  const weights = capability.weights === true;
+  const update = (index: number, changes: Record<string, unknown>) => onChange(lines.map((line, i) => i === index ? { ...line, ...changes } : line));
+  return <div className="stack">
+    <div className="notice">{t("routing.quorumHint")}</div>
+    {!weights && <div className="notice warning">{t("routing.weightsUnavailableHint")}</div>}
+    {lines.map((line, index) => {
+      const targets = array(line.targets);
+      const minNodesError = line.minNodes == null || line.minNodes === '' ? '' : typeof line.minNodes !== 'number' || !Number.isFinite(line.minNodes) || !Number.isInteger(line.minNodes) || line.minNodes < 2 || line.minNodes > 1000 ? t('routing.threshold.invalidMinNodes') : '';
+      const quorumError = line.quorumPercent == null || line.quorumPercent === '' ? '' : typeof line.quorumPercent !== 'number' || !Number.isFinite(line.quorumPercent) || line.quorumPercent < 66.66666667 || line.quorumPercent > 100 ? t('routing.threshold.invalidQuorum') : '';
+      const thresholdHint = `line-threshold-hint-${line.id}`;
+      const targetChange = (targetIndex: number, changes: Record<string, unknown>) => update(index, { targets: targets.map((target, i) => i === targetIndex ? { ...target, ...changes } : target) });
+      return <div className="route-line stack" key={line.id}>
+        <div className="flex items-center justify-between"><strong className="text-xs">{t("routing.lineNumber", { index: index + 1 })}</strong><Button type="button" size="icon-sm" variant="ghost" aria-label={t("routing.deleteLine", { index: index + 1 })} onClick={() => onChange(lines.filter((_, i) => i !== index))}><Trash2 size={13} /></Button></div>
+        <div className="field-grid">
+          <div className="field"><Label htmlFor={`line-alias-${line.id}`}>{t("routing.lineAlias")}</Label><Input id={`line-alias-${line.id}`} value={str(line.alias)} onChange={(event) => update(index, { alias: event.target.value })} required /></div>
+          <div className="field"><Label htmlFor={`line-code-${line.id}`}>{t("routing.providerLineCode")}</Label><Input id={`line-code-${line.id}`} value={str(line.providerLineCode)} list={`provider-lines-${line.id}`} disabled={capability.lines === false} onChange={(event) => update(index, { providerLineCode: event.target.value })} required /><datalist id={`provider-lines-${line.id}`}>{available.data?.data.map((item) => <option key={str(item.code ?? item.id)} value={str(item.code ?? item.id)}>{str(item.name)}</option>)}</datalist></div>
+          <div className="field"><Label htmlFor={`line-group-${line.id}`}>{t("routing.nodeGroup")}</Label><Select value={str(line.nodeGroup) || ''} onValueChange={(group) => update(index, { nodeGroup: group })}><SelectTrigger id={`line-group-${line.id}`}><SelectValue placeholder={t("routing.selectGroup")} /></SelectTrigger><SelectContent><SelectItem value="">{t("routing.unbound")}</SelectItem>{groups.data?.data.map((group) => <SelectItem key={group.id} value={group.id}>{str(group.name)}</SelectItem>)}</SelectContent></Select></div>
+          <div className="field"><Label htmlFor={`line-perspective-${line.id}`}>{t("routing.healthPerspective")}</Label><Select value={str(line.healthPerspective) || 'line'} onValueChange={(perspective) => update(index, { healthPerspective: perspective })}><SelectTrigger id={`line-perspective-${line.id}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="line">{t("routing.perspective.line")}</SelectItem><SelectItem value="group">{t("routing.perspective.group")}</SelectItem><SelectItem value="global">{t("routing.perspective.global")}</SelectItem></SelectContent></Select></div>
+          <div className="field"><Label htmlFor={`line-min-nodes-${line.id}`}>{t('routing.threshold.minNodes')}</Label><Input id={`line-min-nodes-${line.id}`} type="number" min={2} max={1000} step={1} value={typeof line.minNodes === 'number' && !Number.isFinite(line.minNodes) ? '' : str(line.minNodes)} placeholder={inheritedThreshold('routing.min_nodes')} aria-invalid={Boolean(minNodesError)} aria-describedby={minNodesError ? `${thresholdHint} line-min-nodes-error-${line.id}` : thresholdHint} ref={(input) => input?.setCustomValidity(minNodesError)} onChange={(event) => update(index, { minNodes: event.target.value === '' && !event.target.validity.badInput ? null : event.target.valueAsNumber })} />{minNodesError && <small className="field-error" id={`line-min-nodes-error-${line.id}`}>{minNodesError}</small>}</div>
+          <div className="field"><Label htmlFor={`line-quorum-${line.id}`}>{t('routing.threshold.quorum')}</Label><Input id={`line-quorum-${line.id}`} type="number" min={66.66666667} max={100} step="any" value={typeof line.quorumPercent === 'number' && !Number.isFinite(line.quorumPercent) ? '' : str(line.quorumPercent)} placeholder={inheritedThreshold('routing.quorum_percent')} aria-invalid={Boolean(quorumError)} aria-describedby={quorumError ? `${thresholdHint} line-quorum-error-${line.id}` : thresholdHint} ref={(input) => input?.setCustomValidity(quorumError)} onChange={(event) => update(index, { quorumPercent: event.target.value === '' && !event.target.validity.badInput ? null : event.target.valueAsNumber })} />{quorumError && <small className="field-error" id={`line-quorum-error-${line.id}`}>{quorumError}</small>}</div>
+        </div>
+        <small className="text-xs text-muted-foreground" id={thresholdHint}>{t('routing.threshold.hint')}</small>
+        {targets.map((target, targetIndex) => <div className="stack gap-3 border-t pt-3" key={target.id}>
+          <div className="route-target">{[{ key: 'name', label: t("routing.target.name"), type: 'text' }, { key: 'cname', label: t("routing.target.cname"), type: 'text' }, { key: 'priority', label: t("routing.target.priority"), type: 'number' }, { key: 'weight', label: t("routing.target.weight"), type: 'number' }].map((field) => <div className="field" key={field.key}><Label htmlFor={`${field.key}-${target.id}`}>{field.label}</Label><Input id={`${field.key}-${target.id}`} type={field.type} value={str(target[field.key])} disabled={field.key === 'weight' && !weights} min={field.key === 'weight' ? 1 : 0} max={field.key === 'weight' ? 100 : undefined} required onChange={(event) => targetChange(targetIndex, { [field.key]: field.type === 'number' ? event.target.valueAsNumber : event.target.value })} /></div>)}<Button type="button" variant="ghost" size="icon-sm" aria-label={t("routing.deleteTarget", { name: str(target.name) })} onClick={() => update(index, { targets: targets.filter((_, i) => i !== targetIndex) })}><Trash2 size={13} /></Button></div>
+          <div className="flex items-center gap-2"><Checkbox id={`enabled-${target.id}`} checked={target.enabled !== false} onCheckedChange={(enabled) => targetChange(targetIndex, { enabled: enabled === true })} /><Label htmlFor={`enabled-${target.id}`}>{t("routing.target.enabled")}</Label></div>
+          <details className="text-xs"><summary className="cursor-pointer text-muted-foreground">{t("routing.target.overrides")}</summary><div className="field-grid mt-3"><div className="field"><Label htmlFor={`protocol-${target.id}`}>{t("routing.target.protocol")}</Label><Select value={str(target.protocol) || ''} onValueChange={(protocol) => targetChange(targetIndex, { protocol: protocol || undefined })}><SelectTrigger id={`protocol-${target.id}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="">{t("routing.target.inheritProtocol")}</SelectItem><SelectItem value="https">HTTPS</SelectItem><SelectItem value="http">HTTP</SelectItem></SelectContent></Select></div><div className="field"><Label htmlFor={`port-${target.id}`}>{t("routing.target.port")}</Label><Input id={`port-${target.id}`} type="number" min={1} max={65535} placeholder={t("routing.target.inheritPort")} value={str(target.port)} onChange={(event) => targetChange(targetIndex, { port: event.target.value ? event.target.valueAsNumber : undefined })} /></div><div className="field sm:col-span-2"><Label htmlFor={`headers-${target.id}`}>{t("routing.target.headers")}</Label><Textarea id={`headers-${target.id}`} className="mono" value={typeof target.headers === 'string' ? target.headers : JSON.stringify(target.headers ?? {}, null, 2)} onChange={(event) => targetChange(targetIndex, { headers: event.target.value })} rows={3} /><small>{t("routing.target.portHint")}</small></div></div></details>
+        </div>)}
+        <Button type="button" size="sm" variant="outline" onClick={() => update(index, { targets: [...targets, { id: crypto.randomUUID(), name: '', cname: '', priority: targets.length + 1, weight: 1, enabled: true }] })}><Plus size={13} />{t("routing.addTarget")}</Button>
+        {available.error && <small className="field-error">{t("routing.lineSyncFailed", { message: available.error.message })}</small>}
+      </div>;
+    })}
+    <Button type="button" size="sm" variant="outline" onClick={() => onChange([...lines, { id: crypto.randomUUID(), alias: lines.length ? '' : t("routing.defaultLine"), providerLineCode: 'default', nodeGroup: '', healthPerspective: 'line', targets: [] }])}><Plus size={13} />{t("routing.addLine")}</Button>
+  </div>;
+}

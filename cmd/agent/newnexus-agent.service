@@ -1,0 +1,31 @@
+[Unit]
+Description=NewNexus outbound probe node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=newnexus-agent
+StateDirectoryMode=0700
+EnvironmentFile=/etc/newnexus/agent.env
+Environment=NEWNEXUS_AGENT_DATA_DIR=/var/lib/newnexus-agent
+ExecStart=/usr/local/bin/newnexus-agent
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=15
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

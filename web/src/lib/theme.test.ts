@@ -1,26 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import { applyTheme, saveTheme, storedTheme } from './theme';
-
-describe('theme bridge', () => {
-  afterEach(() => {
-    localStorage.clear();
-    document.documentElement.removeAttribute('data-theme');
-    document.documentElement.removeAttribute('data-mode');
-    document.documentElement.style.colorScheme = '';
-  });
-
-  it('stores and applies monochrome mode through the Kumo light token set', () => {
-    saveTheme('mono');
-    expect(storedTheme()).toBe('mono');
-    expect(document.documentElement.dataset.theme).toBe('mono');
-    expect(document.documentElement.dataset.mode).toBe('light');
-    expect(document.documentElement.style.colorScheme).toBe('light');
-  });
-
-  it('applies dark mode to both theme markers', () => {
-    applyTheme('dark');
-    expect(document.documentElement.dataset.theme).toBe('dark');
-    expect(document.documentElement.dataset.mode).toBe('dark');
-    expect(document.documentElement.style.colorScheme).toBe('dark');
-  });
+beforeEach(() => { localStorage.clear(); document.documentElement.classList.remove('dark'); vi.restoreAllMocks(); });
+it('defaults to system and responds to its color scheme', () => {
+  vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true })); expect(storedTheme()).toBe('system'); applyTheme('system'); expect(document.documentElement.dataset.theme).toBe('dark');
+  applyTheme('light'); expect(document.documentElement.classList.contains('dark')).toBe(false);
 });
+it('persists explicit preference and uses it after reload', () => { saveTheme('dark'); expect(localStorage.getItem('newnexus.theme')).toBe('dark'); expect(storedTheme()).toBe('dark'); expect(document.documentElement.style.colorScheme).toBe('dark'); });
+it('keeps preference usable when browser storage is blocked', () => { vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); }); vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); }); saveTheme('light'); expect(storedTheme()).toBe('light'); });

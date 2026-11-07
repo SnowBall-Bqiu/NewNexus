@@ -1,15 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: (query: string) => ({
-    matches: query.includes('prefers-color-scheme: dark'),
-    media: query,
-    onchange: null,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-    addListener: () => undefined,
-    removeListener: () => undefined,
-    dispatchEvent: () => false,
-  }),
-});
+import { vi } from 'vitest';
+Object.defineProperty(window, 'matchMedia', { writable: true, value: vi.fn().mockImplementation((query: string) => ({ matches: false, media: query, onchange: null, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() })) });
+globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+Element.prototype.scrollIntoView = vi.fn();

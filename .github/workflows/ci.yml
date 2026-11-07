@@ -1,120 +1,139 @@
-name: CI
-
+name: Verify
 on:
   push:
-    branches: [main]
   pull_request:
-
 permissions:
   contents: read
-
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: verify-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
-  go:
-    name: Go test and vet
+  backend:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        database: [sqlite, mysql]
     services:
-      postgres:
-        image: postgres:17-alpine
+      mysql:
+        image: mysql:8.4
         env:
-          POSTGRES_DB: newnexus_test
-          POSTGRES_USER: newnexus
-          POSTGRES_PASSWORD: newnexus_test
-        ports:
-          - 5432:5432
+          MYSQL_DATABASE: newnexus_test
+          MYSQL_ROOT_PASSWORD: newnexus-ci-root-only
+          MYSQL_ROOT_HOST: '%'
+        ports: ['3306:3306']
         options: >-
-          --health-cmd "pg_isready -U newnexus -d newnexus_test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
+          --health-cmd='MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --protocol=tcp --host=127.0.0.1 --user=root --database="$MYSQL_DATABASE" --execute="SELECT 1" --silent --skip-column-names'
+          --health-interval=5s --health-timeout=5s --health-retries=30 --health-start-period=20s
+    env:
+      # Repository tests create/drop isolated databases; root is confined to this disposable CI service.
+      NEWNEXUS_TEST_MYSQL: mysql://root:newnexus-ci-root-only@127.0.0.1:3306/newnexus_test?tls=false
+      NEWNEXUS_TEST_BACKEND: ${{ matrix.database }}
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: '1.27.3'
           cache: true
-      - name: Check formatting
-        run: test -z "$(gofmt -l cmd internal)"
-      - name: Run unit and SQLite migration tests
-        run: go test -race ./cmd/... ./internal/...
-      - name: Run vet
-        run: go vet ./cmd/... ./internal/...
-      - name: Run PostgreSQL migration and multi-worker lease tests
-        env:
-          NEWNEXUS_TEST_POSTGRES_URL: postgres://newnexus:newnexus_test@127.0.0.1:5432/newnexus_test?sslmode=disable
-        run: go test ./internal/store ./internal/jobs ./internal/agenthub
-
-  web:
-    name: Web lint, test and build
+      - run: go mod verify
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+  frontend:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        database: [sqlite, mysql]
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: newnexus_browser
+          MYSQL_USER: newnexus_browser
+          MYSQL_PASSWORD: newnexus-ci-browser-only
+          MYSQL_RANDOM_ROOT_PASSWORD: '1'
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd='MYSQL_PWD="$MYSQL_PASSWORD" mysql --protocol=tcp --host=127.0.0.1 --user="$MYSQL_USER" --database="$MYSQL_DATABASE" --execute="SELECT 1" --silent --skip-column-names'
+          --health-interval=5s --health-timeout=5s --health-retries=30 --health-start-period=20s
+    env:
+      NEWNEXUS_E2E_DATABASE_URL: ${{ matrix.database == 'mysql' && 'mysql://newnexus_browser:newnexus-ci-browser-only@127.0.0.1:3306/newnexus_browser?tls=false' || '' }}
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          node-version: 22
+          go-version: '1.27.3'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Install dependencies
+      - run: npm ci --registry=https://registry.npmjs.org --no-audit --no-fund
         working-directory: web
-        run: npm ci
-      - name: Run ESLint
+      - run: npm test
         working-directory: web
-        run: npm run lint
-      - name: Run unit tests
+      - run: npm run build
         working-directory: web
-        run: npm run test
-      - name: Build production console and run policy checks
+      - run: go build -o bin/newnexus-server ./cmd/server
+      - run: go build -o bin/newnexus-agent ./cmd/agent
+      - run: npx playwright install --with-deps chromium
         working-directory: web
-        run: npm run build
-
-  e2e:
-    name: Browser end-to-end
+      - run: npm run test:e2e
+        working-directory: web
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: browser-acceptance-${{ matrix.database }}
+          path: |
+            web/playwright-report/
+            output/playwright/
+          retention-days: 7
+  artifacts:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
-          cache: true
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+          go-version: '1.27.3'
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: '22'
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Install web dependencies
+      - run: npm ci --registry=https://registry.npmjs.org --no-audit --no-fund && npm run build
         working-directory: web
-        run: npm ci
-      - name: Install Chromium and system dependencies
-        working-directory: web
-        run: npx playwright install --with-deps chromium
-      - name: Run full browser flows
-        working-directory: web
-        run: npm run test:e2e
-
-  deployment:
-    name: Compose and container validation
+      - name: Build static Linux control plane and Agent
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          go build -trimpath -ldflags='-s -w' -o output/linux-${GOARCH}/newnexus-server ./cmd/server
+          go build -trimpath -ldflags='-s -w' -o output/linux-${GOARCH}/newnexus-agent ./cmd/agent
+          cp -R web/dist output/linux-${GOARCH}/web
+          mkdir -p output/linux-${GOARCH}/deploy/systemd output/linux-${GOARCH}/deploy/tls
+          cp deploy/Caddyfile.example deploy/newnexus.env.example output/linux-${GOARCH}/deploy/
+          cp deploy/systemd/newnexus.service output/linux-${GOARCH}/deploy/systemd/
+          cp deploy/tls/README.md output/linux-${GOARCH}/deploy/tls/
+          cp -R docs output/linux-${GOARCH}/docs
+          cp -R api output/linux-${GOARCH}/api
+          mkdir -p output/linux-${GOARCH}/scripts output/linux-${GOARCH}/cmd/agent
+          cp scripts/sqlite-backup.py output/linux-${GOARCH}/scripts/
+          cp cmd/agent/newnexus-agent.service output/linux-${GOARCH}/cmd/agent/
+          cp README.md LICENSE output/linux-${GOARCH}/
+          cd output/linux-${GOARCH}
+          sha256sum newnexus-server newnexus-agent > SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ matrix.arch }}
+          path: output/linux-${{ matrix.arch }}/
+          if-no-files-found: error
+  containers:
+    needs: [backend, frontend]
     runs-on: ubuntu-latest
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Validate documented Compose profiles
-        env:
-          NEWNEXUS_MASTER_KEY: CI-only-master-key-with-more-than-20-characters
-          POSTGRES_PASSWORD: newnexus_test
-          NEWNEXUS_AGENT_ENROLL_CODE: ci-placeholder-enrollment-code
-        run: docker compose -f docker-compose.yaml --profile sqlite --profile postgres --profile agent config --quiet
-      - name: Build control-plane image
-        run: docker build --build-arg VERSION=ci -t newnexus:ci .
-      - name: Build Agent image
-        run: docker build --build-arg VERSION=ci -f Dockerfile.agent -t newnexus-agent:ci .
+      - uses: actions/checkout@v7
+      - run: docker build -t newnexus:ci .
+      - run: docker build -f Dockerfile.agent -t newnexus-agent:ci .

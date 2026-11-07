@@ -1,11 +1,1 @@
-{
-  "compilerOptions": {
-    "composite": true,
-    "skipLibCheck": true,
-    "noEmit": true,
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "allowImportingTsExtensions": true
-  },
-  "include": ["vite.config.ts"]
-}
+{"compilerOptions":{"target":"ES2022","lib":["ES2022"],"module":"ESNext","skipLibCheck":true,"moduleResolution":"Bundler","allowImportingTsExtensions":true,"isolatedModules":true,"noEmit":true,"strict":true,"types":["node"]},"include":["vite.config.ts","playwright.config.ts"]}

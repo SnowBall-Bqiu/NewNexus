@@ -2,241 +2,85 @@ package agenthub
 
 import (
 	"context"
-	"path/filepath"
-	"sync"
-	"testing"
-	"time"
-
-	"github.com/SnowBall-Bqiu/NewNexus/internal/config"
-	"github.com/SnowBall-Bqiu/NewNexus/internal/domain"
-	"github.com/SnowBall-Bqiu/NewNexus/internal/events"
-	"github.com/SnowBall-Bqiu/NewNexus/internal/store"
-	"github.com/SnowBall-Bqiu/NewNexus/internal/testutil"
+	"github.com/newnexus/newnexus/internal/agentproto"
+	"github.com/newnexus/newnexus/internal/domain"
+	"github.com/newnexus/newnexus/internal/optimizer"
+	"github.com/newnexus/newnexus/internal/testutil"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
+	"path/filepath"
+	"testing"
+	"time"
 )
 
-func TestDispatchDeduplicatesConcurrentActiveTasks(t *testing.T) {
-	database, err := store.Open(config.Config{DatabaseDriver: "sqlite", DatabaseURL: filepath.Join(t.TempDir(), "agent-dispatch.db")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	hub := New(database, events.NewBroker())
-	start := make(chan struct{})
-	errors := make(chan error, 2)
-	var workers sync.WaitGroup
-	for index := 0; index < 2; index++ {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
-			<-start
-			errors <- hub.Dispatch("node-one", Task{CandidateID: "candidate-one", Mode: "tcp", Address: "1.1.1.1"})
-		}()
-	}
-	close(start)
-	workers.Wait()
-	close(errors)
-	succeeded := 0
-	for err := range errors {
-		if err == nil {
-			succeeded++
-		}
-	}
-	if succeeded != 1 {
-		t.Fatalf("expected exactly one active task creation, got %d", succeeded)
-	}
-	var count int64
-	if err := database.DB.Model(&domain.AgentTask{}).Where("node_id = ? AND candidate_id = ? AND status = ?", "node-one", "candidate-one", "queued").Count(&count).Error; err != nil {
-		t.Fatal(err)
-	}
-	if count != 1 {
-		t.Fatalf("expected one active task, got %d", count)
-	}
-}
-
-func TestRecoveryCodeIsOneTimeAndRevokedNodesCannotRecover(t *testing.T) {
-	database, err := store.Open(config.Config{DatabaseDriver: "sqlite", DatabaseURL: filepath.Join(t.TempDir(), "agent-recovery.db")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	hub := New(database, events.NewBroker())
-	node := domain.ProbeNode{Name: "recoverable", Status: "re_enroll_required"}
-	if err := database.DB.Create(&node).Error; err != nil {
-		t.Fatal(err)
-	}
-	code, _, err := hub.CreateRecoveryCode(node.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request, _ := structpb.NewStruct(map[string]any{"code": code, "nodeId": node.ID, "recoveryCode": code, "protocolVersion": "agent.v1"})
-	if _, err := hub.Enroll(context.Background(), request); err != nil {
-		t.Fatalf("first recovery failed: %v", err)
-	}
-	if _, err := hub.Enroll(context.Background(), request); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("recovery code reuse should be denied, got %v", err)
-	}
-	if err := hub.RevokeNode(node.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := hub.CreateRecoveryCode(node.ID); err == nil {
-		t.Fatal("revoked node unexpectedly received a recovery code")
-	}
-}
-
-func TestCredentialRotationCommitsOnlyAfterAck(t *testing.T) {
-	database, err := store.Open(config.Config{DatabaseDriver: "sqlite", DatabaseURL: filepath.Join(t.TempDir(), "agent-rotation.db")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	hub := New(database, events.NewBroker())
-	node := domain.ProbeNode{Name: "rotation", Status: "online", AgentTokenHash: "old-token-hash"}
-	if err := database.DB.Create(&node).Error; err != nil {
-		t.Fatal(err)
-	}
-	responses := make(chan *structpb.Struct, 1)
-	hub.responses[node.ID] = responses
-	type result struct {
-		token string
-		err   error
-	}
-	done := make(chan result, 1)
-	go func() {
-		token, _, err := hub.RotateCredentials(node.ID)
-		done <- result{token: token, err: err}
-	}()
-	message := <-responses
-	rotationID := fieldString(message, "rotationId")
-	var pending domain.ProbeNode
-	if err := database.DB.First(&pending, "id = ?", node.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if pending.AgentTokenHash != "old-token-hash" || pending.PendingTokenHash == "" || rotationID == "" {
-		t.Fatalf("rotation committed before ACK: %#v", pending)
-	}
-	ack, _ := structpb.NewStruct(map[string]any{"type": "credential_rotation_ack", "rotationId": rotationID})
-	if _, err := hub.handleMessage(node.ID, ack); err != nil {
-		t.Fatal(err)
-	}
-	rotation := <-done
-	if rotation.err != nil || rotation.token == "" {
-		t.Fatalf("rotation failed after ACK: %+v", rotation)
-	}
-	var committed domain.ProbeNode
-	if err := database.DB.First(&committed, "id = ?", node.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if committed.AgentTokenHash == "old-token-hash" || committed.PendingTokenHash != "" || committed.RotationID != "" {
-		t.Fatalf("rotation was not committed: %#v", committed)
-	}
-}
-
-func TestCredentialRotationTimeoutRestoresOldToken(t *testing.T) {
-	database, err := store.Open(config.Config{DatabaseDriver: "sqlite", DatabaseURL: filepath.Join(t.TempDir(), "agent-rotation-timeout.db")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	hub := New(database, events.NewBroker())
-	hub.rotationWait = 10 * time.Millisecond
-	node := domain.ProbeNode{Name: "rotation-timeout", Status: "online", AgentTokenHash: "old-token-hash"}
-	if err := database.DB.Create(&node).Error; err != nil {
-		t.Fatal(err)
-	}
-	hub.responses[node.ID] = make(chan *structpb.Struct, 2)
-	if _, _, err := hub.RotateCredentials(node.ID); err == nil {
-		t.Fatal("rotation without ACK unexpectedly succeeded")
-	}
-	var restored domain.ProbeNode
-	if err := database.DB.First(&restored, "id = ?", node.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if restored.AgentTokenHash != "old-token-hash" || restored.PendingTokenHash != "" || restored.RotationID != "" {
-		t.Fatalf("old token was not restored: %#v", restored)
-	}
-}
-
-func TestDefaultQuorumUsesExactTwoThirds(t *testing.T) {
-	for _, test := range []struct {
-		votes, total int
-		want         bool
-	}{{1, 2, false}, {2, 2, true}, {2, 3, true}, {1, 3, false}, {3, 4, true}, {2, 4, false}} {
-		if got := meetsQuorum(test.votes, test.total, 67); got != test.want {
-			t.Fatalf("meetsQuorum(%d, %d, 67) = %v, want %v", test.votes, test.total, got, test.want)
-		}
-	}
-}
-
-func TestResultBatchIsInsertedOnce(t *testing.T) {
-	database, err := store.Open(config.Config{DatabaseDriver: "sqlite", DatabaseURL: filepath.Join(t.TempDir(), "agent-batch.db")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-
-	node := domain.ProbeNode{Name: "batch-node", Status: "online"}
-	if err := database.DB.Create(&node).Error; err != nil {
-		t.Fatal(err)
-	}
-	hub := New(database, events.NewBroker())
-	batch := []any{
-		map[string]any{"jobId": "job-one", "mode": "tcp", "success": true, "tcpMs": 12.0},
-		map[string]any{"jobId": "job-two", "mode": "http", "success": false, "errorCode": "timeout"},
-	}
-	acked, err := hub.handleResultBatch(node.ID, batch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(acked) != 2 {
-		t.Fatalf("unexpected acknowledgements: %#v", acked)
-	}
-	assertBatchCounts(t, database, node.ID, 2, 2)
-
-	if _, err := hub.handleResultBatch(node.ID, batch); err != nil {
-		t.Fatal(err)
-	}
-	assertBatchCounts(t, database, node.ID, 2, 2)
-}
-
-func TestPostgresPartitionedResultBatchIsInsertedOnce(t *testing.T) {
-	databaseURL := testutil.IsolatedPostgresURL(t)
-	database, err := store.Open(config.Config{DatabaseDriver: "postgres", DatabaseURL: databaseURL})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	node := domain.ProbeNode{Name: "postgres-batch-node", Status: "online"}
-	if err := database.DB.Create(&node).Error; err != nil {
-		t.Fatal(err)
-	}
-	hub := New(database, events.NewBroker())
-	batch := []any{map[string]any{"jobId": "postgres-job-one", "mode": "tcp", "success": true, "tcpMs": 12.0}}
-	if _, err := hub.handleResultBatch(node.ID, batch); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := hub.handleResultBatch(node.ID, batch); err != nil {
-		t.Fatal(err)
-	}
-	assertBatchCounts(t, database, node.ID, 1, 1)
-}
-
-func assertBatchCounts(t *testing.T, database *store.Store, nodeID string, samples, completed int64) {
+func fixture(t *testing.T) (*Hub, domain.Doc) {
 	t.Helper()
-	var count int64
-	if err := database.DB.Model(&domain.ProbeSample{}).Count(&count).Error; err != nil {
-		t.Fatal(err)
+	s := testutil.Open(t, filepath.Join(t.TempDir(), "hub.db"))
+	h := New(s)
+	token, e := h.Enrollment(context.Background(), time.Hour, "node")
+	if e != nil {
+		t.Fatal(e)
 	}
-	if count != samples {
-		t.Fatalf("sample count = %d, want %d", count, samples)
+	req, _ := structpb.NewStruct(map[string]any{"enrollment_token": token["token"], "name": "node", "protocol_version": 1})
+	resp, e := h.Enroll(context.Background(), req)
+	if e != nil {
+		t.Fatal(e)
 	}
-	var node domain.ProbeNode
-	if err := database.DB.First(&node, "id = ?", nodeID).Error; err != nil {
-		t.Fatal(err)
+	if _, e = h.Enroll(context.Background(), req); status.Code(e) != codes.Unauthenticated {
+		t.Fatal("token reused", e)
 	}
-	if node.TasksCompleted != completed {
-		t.Fatalf("tasks completed = %d, want %d", node.TasksCompleted, completed)
+	return h, domain.Doc(resp.AsMap())
+}
+func TestEnrollmentResultIdempotencyAndWeightedSamples(t *testing.T) {
+	h, enrolled := fixture(t)
+	ctx := context.Background()
+	candidate := domain.Doc{"id": domain.ID(), "address": "1.1.1.1", "tier": "inventory"}
+	if e := h.Store.Put(ctx, "candidates", candidate); e != nil {
+		t.Fatal(e)
+	}
+	task := domain.Doc{"id": domain.ID(), "candidate_id": candidate["id"], "address": "1.1.1.1"}
+	if e := h.Dispatch(ctx, domain.S(enrolled, "node_id"), task); e != nil {
+		t.Fatal(e)
+	}
+	result := domain.Doc{"id": agentproto.ResultID(domain.S(enrolled, "node_id"), domain.S(task, "id")), "task_id": task["id"], "candidate_id": candidate["id"], "success": true, "success_rate": 1., "sample_count": 3, "tcp_ms": 10., "tls_ms": 20., "ttfb_ms": 30., "download_bps": 1000000., "observed_at": domain.Now()}
+	for i := 0; i < 2; i++ {
+		if e := h.Ingest(ctx, domain.S(enrolled, "node_id"), []domain.Doc{result}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	var count int
+	if e := h.Store.DB.QueryRow(`SELECT COUNT(*) FROM metrics`).Scan(&count); e != nil || count != 1 {
+		t.Fatal("duplicate metric", count, e)
+	}
+	if _, e := optimizer.RefreshPending(ctx, h.Store, 100); e != nil {
+		t.Fatal(e)
+	}
+	d, _ := h.Store.Get(ctx, "candidates", domain.S(candidate, "id"))
+	if !domain.B(d, "healthy") || domain.N(d, "sample_count") != 3 {
+		t.Fatal(d)
+	}
+	if e := h.Ingest(ctx, "other-node", []domain.Doc{result}); e == nil {
+		t.Fatal("accepted result for another node")
+	}
+	if e := h.Revoke(ctx, domain.S(enrolled, "node_id")); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := h.authenticate(ctx, domain.S(enrolled, "node_id"), domain.S(enrolled, "credential")); status.Code(e) != codes.Unauthenticated {
+		t.Fatal(e)
+	}
+}
+func TestExpiredOutboxCanDrain(t *testing.T) {
+	h, enrolled := fixture(t)
+	ctx := context.Background()
+	task := domain.Doc{"id": domain.ID(), "candidate_id": "old", "address": "1.1.1.1"}
+	_ = h.Dispatch(ctx, domain.S(enrolled, "node_id"), task)
+	result := domain.Doc{"id": agentproto.ResultID(domain.S(enrolled, "node_id"), domain.S(task, "id")), "task_id": task["id"], "observed_at": time.Now().UTC().Add(-8 * 24 * time.Hour).Format(time.RFC3339Nano)}
+	if e := h.Ingest(ctx, domain.S(enrolled, "node_id"), []domain.Doc{result}); e != nil {
+		t.Fatal(e)
+	}
+	stored, _ := h.Store.Get(ctx, "tasks", domain.S(task, "id"))
+	if domain.S(stored, "status") != "done" || !domain.B(stored, "result_expired") {
+		t.Fatal(stored)
 	}
 }

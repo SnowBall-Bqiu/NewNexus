@@ -1,0 +1,57 @@
+MySQL aggregation query plan comparison
+Recorded 2026-11-07, MySQL 8.4.13, Windows development host.
+
+Scope: isolated disposable QA database newnexus_plan_1794023061582977700.
+100,000 candidates use the original load-test seed fields; 10,000 active
+candidates additionally have recent last_probed_at and aggregate_pending=false.
+Both queries use the same stale cutoff and limit=2500 and return zero rows.
+No external providers, nodes, or user database are involved. The QA database
+was dropped after this comparison. This is a single-query diagnostic, not the
+full production-path capacity acceptance result.
+
+BEFORE: schema v3; existing OR of pending flag and JSON health/time predicates.
+EXPLAIN ANALYZE:
+-> Limit: 2500 row(s)  (cost=4930 rows=2500) (actual time=83.2..83.2 rows=0 loops=1)
+    -> Sort: resources.updated_at, limit input to 2500 row(s) per chunk  (cost=4930 rows=48588) (actual time=83.2..83.2 rows=0 loops=1)
+        -> Filter: ((resources.aggregate_pending_idx = 1) or (((case when (json_type(json_extract(resources.doc,'$.healthy')) = 'BOOLEAN') then (json_unquote(json_extract(resources.doc,'$.healthy')) = 'true') else NULL end) = 1) and (nullif(json_unquote(json_extract(resources.doc,'$.last_probed_at')),'null') < '2026-11-07T03:43:22.477554400Z')))  (cost=4930 rows=48588) (actual time=83.1..83.1 rows=0 loops=1)
+            -> Index lookup on resources using PRIMARY (kind='candidates')  (cost=4930 rows=48588) (actual time=0.0123..46.5 rows=100000 loops=1)
+
+AFTER: idempotent schema v4 upgrade; separate indexed pending/stale branches,
+UNION ALL with stale excluding pending, global order/limit on ID metadata,
+then unique primary-key lookups for selected documents.
+EXPLAIN ANALYZE:
+-> Nested loop inner join  (cost=9.16 rows=2) (actual time=0.356..0.356 rows=0 loops=1)
+    -> Sort: due.updated_at, due.id  (cost=7.33..7.33 rows=2) (actual time=0.355..0.355 rows=0 loops=1)
+        -> Table scan on due  (cost=5.66..6.93 rows=2) (actual time=0.0696..0.0696 rows=0 loops=1)
+            -> Materialize  (cost=4.4..4.4 rows=2) (actual time=0.0691..0.0691 rows=0 loops=1)
+                -> Limit: 2500 row(s)  (cost=4.2..4.2 rows=2) (actual time=0.039..0.039 rows=0 loops=1)
+                    -> Sort: scoped.updated_at, scoped.id, limit input to 2500 row(s) per chunk  (cost=4.2..4.2 rows=2) (actual time=0.0386..0.0386 rows=0 loops=1)
+                        -> Table scan on scoped  (cost=2.54..3.8 rows=2) (actual time=0.0369..0.0369 rows=0 loops=1)
+                            -> Union all materialize  (cost=1.28..1.28 rows=2) (actual time=0.036..0.036 rows=0 loops=1)
+                                -> Limit: 2500 row(s)  (cost=0.48 rows=1) (actual time=0.0102..0.0102 rows=0 loops=1)
+                                    -> Covering index lookup on resources using resources_aggregation (kind='candidates', aggregate_pending_idx=1)  (cost=0.48 rows=1) (actual time=0.00963..0.00963 rows=0 loops=1)
+                                -> Limit: 2500 row(s)  (cost=0.595 rows=1) (actual time=0.0232..0.0232 rows=0 loops=1)
+                                    -> Sort: resources.updated_at, resources.id, limit input to 2500 row(s) per chunk  (cost=0.595 rows=1) (actual time=0.023..0.023 rows=0 loops=1)
+                                        -> Filter: ((resources.healthy_idx = 1) and (resources.kind = 'candidates') and (resources.last_probed_idx < '2026-11-07T03:43:22.477554400Z') and ((resources.aggregate_pending_idx is null) or (resources.aggregate_pending_idx <> 1)))  (cost=0.595 rows=1) (actual time=0.0103..0.0103 rows=0 loops=1)
+                                            -> Covering index range scan on resources using resources_candidates_stale over (kind = 'candidates' AND healthy_idx = 1 AND NULL < last_probed_idx < '2026-11-07T03:43:22.477554400Z')  (cost=0.595 rows=1) (actual time=0.00974..0.00974 rows=0 loops=1)
+    -> Single-row index lookup on r using PRIMARY (kind='candidates', id=due.id)  (cost=0.434 rows=1) (never executed)
+
+Observed result: old query read 100,000 inventory rows, 83.2 ms; indexed
+query read zero matching index rows, 0.356 ms. Actual production
+Store.AggregationResources also returned zero rows after migration.
+
+Additional actual MySQL regression evidence:
+- v1 metadata upgraded concurrently by four callers through v4, including
+  generated health/time columns and all time-retention indexes.
+- Pending/stale overlap appears once; kind scope, global ordering, limit,
+  boolean/null/empty timestamp semantics are preserved.
+- PatchMany commits each independent 250-row chunk. An external lock on the
+  first row of chunk two does not prevent chunk one becoming visible or
+  receiving a concurrent SetSchedule update. A changed generation in chunk
+  two remains pending after the old aggregation completes.
+- EXPLAIN FORMAT=JSON confirms both SELECT FOR UPDATE OF target and UPDATE
+  use eq_ref on target.PRIMARY via JSON_TABLE requested IDs + STRAIGHT_JOIN.
+  This avoids the unrelated next-key/range locks of large IN lists.
+- PutMany retains its whole-operation transaction; SQL failure in a later
+  insertion chunk rolls back prior chunks. Result ingestion atomicity is
+  outside this Store change and remains separately tested.

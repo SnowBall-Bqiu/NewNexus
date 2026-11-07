@@ -1,18 +1,20 @@
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
+# Equivalent standalone Agent image; the detailed recipe is maintained with cmd/agent.
+FROM --platform=$BUILDPLATFORM golang:1.27.3-bookworm AS build
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG VERSION=0.1.0
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
-COPY cmd/ ./cmd/
-COPY internal/ ./internal/
-ARG VERSION=dev
-ARG TARGETOS
-ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/newnexus-agent ./cmd/agent
-
-FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata && addgroup -S newnexus && adduser -S -G newnexus newnexus
-WORKDIR /var/lib/newnexus-agent
-COPY --from=builder /out/newnexus-agent /usr/local/bin/newnexus-agent
-RUN chown -R newnexus:newnexus /var/lib/newnexus-agent
-USER newnexus
-ENTRYPOINT ["newnexus-agent"]
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY internal/agentproto ./internal/agentproto
+COPY internal/agentclient ./internal/agentclient
+COPY cmd/agent ./cmd/agent
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/newnexus/newnexus/internal/agentclient.Version=$VERSION" -o /newnexus-agent ./cmd/agent
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/* && groupadd -g 65532 newnexus && useradd -r -u 65532 -g 65532 newnexus && mkdir /data && chown 65532:65532 /data
+COPY --from=build /newnexus-agent /usr/local/bin/newnexus-agent
+USER 65532:65532
+ENV NEWNEXUS_AGENT_DATA_DIR=/data
+VOLUME ["/data"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 CMD ["/usr/local/bin/newnexus-agent", "--healthcheck"]
+ENTRYPOINT ["/usr/local/bin/newnexus-agent"]

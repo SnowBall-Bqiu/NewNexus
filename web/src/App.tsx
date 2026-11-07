@@ -1,365 +1,51 @@
-import { Suspense, useEffect, useMemo, useState } from 'react';
-import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Banner as KumoBanner,
-  Breadcrumbs,
-  Button as KumoButton,
-  CommandPalette,
-  DropdownMenu,
-  Sidebar,
-  Text,
-} from '@cloudflare/kumo';
-import {
-  Activity,
-  AlertTriangle,
-  Bell,
-  Boxes,
-  Cable,
-  CaretRight,
-  Cloud,
-  Gauge,
-  Gear,
-  GitBranch,
-  House,
-  ListChecks,
-  LogOut,
-  MagnifyingGlass,
-  Network,
-  RadioTower,
-  Scroll,
-  ShieldCheck,
-} from './components/icons';
-import { ThemeSwitcher } from './components/ThemeSwitcher';
-import { api } from './lib/api';
-import {
-  AlertsPage,
-  AuditPage,
-  ConnectionsPage,
-  JobsPage,
-  NodesPage,
-  OptimizerPage,
-  ProjectsPage,
-  ReleasesPage,
-  RoutesPage,
-  SaaSPage,
-  SettingsPage,
-} from './pages/ConsolePages';
-import { OverviewPage } from './pages/OverviewPage';
-import { LoginPage } from './pages/LoginPage';
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Bell, Cable, ChevronRight, ChevronsLeft, ChevronsRight, Cloud, Gauge, GitBranch, LayoutDashboard, LogOut, Menu, Monitor, Moon, Network, RadioTower, ScrollText, Settings, ShieldCheck, SquareStack, Sun, Workflow, type LucideIcon } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ErrorState, PageHeading } from '@/components/common';
+import { api, ApiError, setCsrfToken } from '@/lib/api';
+import { t } from '@/lib/i18n';
+import { useTheme } from '@/lib/theme';
+import { AuthPage, type AuthResult } from '@/pages/auth';
+import { OverviewPage } from '@/pages/overview';
+import { ResourcePage } from '@/pages/resource-page';
+import { SettingsPage } from '@/pages/settings';
 
-interface AuthStatus {
-  setupRequired: boolean;
-  authenticated: boolean;
-  username?: string;
-  totpEnabled?: boolean;
-  devMode?: boolean;
-  securityWarning?: string;
-}
-
-interface ProjectSummary {
-  id: string;
-  name: string;
-  avatar?: string;
-  color?: string;
-  status?: string;
-}
-
-interface SummaryData {
-  counts?: Record<string, number>;
-  database?: string;
-  version?: string;
-}
-
-type NavItem = {
-  label: string;
-  path: string;
-  Icon: typeof House;
-};
-
-type NavGroup = {
-  label: string;
-  items: NavItem[];
-};
-
-const groups: NavGroup[] = [
-  {
-    label: '工作台',
-    items: [
-      { label: '总览', path: '/overview', Icon: House },
-      { label: '项目与站点', path: '/projects', Icon: Boxes },
-    ],
-  },
-  {
-    label: '流量调度',
-    items: [
-      { label: 'Cloudflare SaaS', path: '/saas', Icon: Cloud },
-      { label: 'CF 优选', path: '/optimizer', Icon: Gauge },
-      { label: 'CNAME 线路', path: '/routes', Icon: GitBranch },
-    ],
-  },
-  {
-    label: '运维记录',
-    items: [
-      { label: '探测节点', path: '/nodes', Icon: RadioTower },
-      { label: '发布记录', path: '/releases', Icon: Scroll },
-      { label: '作业中心', path: '/jobs', Icon: ListChecks },
-      { label: '告警', path: '/alerts', Icon: Bell },
-      { label: '审计日志', path: '/audit', Icon: ShieldCheck },
-    ],
-  },
-  {
-    label: '管理设置',
-    items: [
-      { label: '厂商连接', path: '/connections', Icon: Cable },
-      { label: '系统设置', path: '/settings', Icon: Gear },
-    ],
-  },
+const nav: { label: string; items: { id: string; path: string; icon: LucideIcon }[] }[] = [
+  { label: t("nav.group.workspace"), items: [{ id: 'overview', path: '/overview', icon: LayoutDashboard }, { id: 'projects', path: '/projects', icon: SquareStack }] },
+  { label: t("nav.group.edge"), items: [{ id: 'saas', path: '/saas', icon: Cloud }, { id: 'optimizer', path: '/optimizer', icon: Gauge }, { id: 'rules', path: '/rules', icon: GitBranch }, { id: 'nodes', path: '/nodes', icon: RadioTower }] },
+  { label: t("nav.group.operations"), items: [{ id: 'releases', path: '/releases', icon: ScrollText }, { id: 'jobs', path: '/jobs', icon: Workflow }, { id: 'alerts', path: '/alerts', icon: Bell }, { id: 'audit', path: '/audit', icon: ShieldCheck }] },
+  { label: t("nav.group.administration"), items: [{ id: 'connections', path: '/connections', icon: Cable }, { id: 'settings', path: '/settings', icon: Settings }] },
 ];
 
-const allNavItems = groups.flatMap((group) => group.items.map((item) => ({ ...item, group: group.label })));
-
 export default function App() {
-  const auth = useQuery({
-    queryKey: ['auth-status'],
-    queryFn: () => api<AuthStatus>('/auth/status'),
-    retry: false,
-  });
-
-  if (auth.isLoading) {
-    return <div className="boot"><span className="brand-mark"><Network size={20} /></span><Text>正在连接控制面</Text></div>;
-  }
-  if (!auth.data?.authenticated) {
-    return <LoginPage status={auth.data} onAuthenticated={() => void auth.refetch()} />;
-  }
+  const bootstrap = useQuery({ queryKey: ['bootstrap'], queryFn: () => api<{ initialized: boolean; setupTokenRequired?: boolean }>('/bootstrap/status'), retry: false });
+  const auth = useQuery({ queryKey: ['auth'], queryFn: () => api<AuthResult>('/auth/me'), enabled: bootstrap.data?.initialized === true, retry: false });
+  useEffect(() => { if (auth.data?.csrfToken) setCsrfToken(auth.data.csrfToken); }, [auth.data]);
+  if (bootstrap.isPending || (bootstrap.data?.initialized && auth.isPending)) return <div className="flex min-h-dvh items-center justify-center gap-3 text-sm text-muted-foreground"><Network className="text-primary" size={22} />{t("shell.connecting")}</div>;
+  if (bootstrap.error || (auth.error && !(auth.error instanceof ApiError && auth.error.status === 401))) return <main className="mx-auto max-w-lg px-6 py-24"><PageHeading title={t("shell.connectionErrorTitle")} description={t("shell.connectionErrorDescription")} /><ErrorState error={bootstrap.error ?? auth.error!} retry={() => { void bootstrap.refetch(); void auth.refetch(); }} /></main>;
+  if (!bootstrap.data?.initialized || !auth.data) return <AuthPage initialized={Boolean(bootstrap.data?.initialized)} setupTokenRequired={bootstrap.data?.setupTokenRequired} />;
   return <AppShell auth={auth.data} />;
 }
 
-function AppShell({ auth }: { auth: AuthStatus }) {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [open, setOpen] = useState(() => {
-    try {
-      const saved = localStorage.getItem('newnexus.sidebar.open');
-      if (saved === 'false') return false;
-      if (saved === 'true') return true;
-    } catch {
-      // Storage may be unavailable; use the desktop default.
-    }
-    return typeof window === 'undefined' || window.innerWidth >= 820;
-  });
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const projects = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => api<ProjectSummary[]>('/projects'),
-  });
-  const summary = useQuery({
-    queryKey: ['summary'],
-    queryFn: () => api<SummaryData>('/summary'),
-    refetchInterval: 30_000,
-  });
-  const project = projects.data?.[0];
-  const current = allNavItems.find((item) => location.pathname === item.path || location.pathname.startsWith(`${item.path}/`));
-  const alertCount = summary.data?.counts?.alerts ?? 0;
-  const items = useMemo(() => allNavItems.map((item) => ({ ...item, id: item.path, title: item.label })), []);
-  const filteredItems = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase();
-    return query ? items.filter((item) => `${item.title} ${item.group}`.toLocaleLowerCase().includes(query)) : items;
-  }, [items, search]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('newnexus.sidebar.open', String(open));
-    } catch {
-      // Storage may be unavailable.
-    }
-  }, [open]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        setSearchOpen(true);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
-
-  useEffect(() => {
-    const source = new EventSource('/api/v1/events/stream');
-    const update = () => void queryClient.invalidateQueries({ queryKey: ['summary'] });
-    source.addEventListener('update', update);
-    return () => {
-      source.removeEventListener('update', update);
-      source.close();
-    };
-  }, [queryClient]);
-
-  useEffect(() => {
-    setSearch('');
-  }, [location.pathname]);
-
-  function selectSearchItem(item: (typeof items)[number]) {
-    setSearchOpen(false);
-    setSearch('');
-    navigate(item.path);
-  }
-
-  async function logout() {
-    try {
-      await api('/auth/logout', { method: 'POST' });
-    } finally {
-      await queryClient.invalidateQueries({ queryKey: ['auth-status'] });
-    }
-  }
-
-  return (
-    <Sidebar.Provider
-      open={open}
-      onOpenChange={setOpen}
-      collapsible="icon"
-      resizable={false}
-      defaultWidth={240}
-      minWidth={240}
-      maxWidth={240}
-      mobileBreakpoint={820}
-      className="app-shell"
-      style={{ '--sidebar-width': '240px', '--sidebar-width-icon': '57px' } as React.CSSProperties}
-    >
-      <Sidebar className="app-sidebar" aria-label="主导航">
-        <Sidebar.Header className="brand">
-          <div className="brand-line">
-            <span className="cloud-mark" aria-hidden="true"><Cloud size={23} weight="fill" /></span>
-            <div className="brand-copy">
-              <strong>{project?.name || '选择项目'}</strong>
-              <small>NewNexus</small>
-            </div>
-            <DropdownMenu>
-              <DropdownMenu.Trigger render={<button className="workspace-chevron" type="button" aria-label="切换项目" />}>
-                <CaretRight size={14} />
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Content align="start" side="right" className="workspace-menu">
-                {projects.data?.map((item) => (
-                  <DropdownMenu.Item key={item.id} onClick={() => navigate(`/projects?project=${item.id}`)}>
-                    <span className="workspace-option-mark" style={{ background: item.color || 'var(--brand-green)' }}>{item.avatar || item.name.slice(0, 1)}</span>
-                    <span>{item.name}</span>
-                  </DropdownMenu.Item>
-                ))}
-                <DropdownMenu.Separator />
-                <DropdownMenu.Item onClick={() => navigate('/projects')} icon={<Boxes size={16} />}>管理项目</DropdownMenu.Item>
-              </DropdownMenu.Content>
-            </DropdownMenu>
-          </div>
-        </Sidebar.Header>
-
-        <Sidebar.Content>
-          <button className="sidebar-search" type="button" onClick={() => setSearchOpen(true)}>
-            <MagnifyingGlass size={16} aria-hidden="true" />
-            <span>快速搜索...</span>
-            <kbd>Ctrl K</kbd>
-          </button>
-
-          {groups.map((group) => (
-            <Sidebar.Group key={group.label}>
-              <Sidebar.GroupLabel>{group.label}</Sidebar.GroupLabel>
-              <Sidebar.Menu>
-                {group.items.map(({ label, path, Icon }) => {
-                  const active = location.pathname === path || location.pathname.startsWith(`${path}/`);
-                  return (
-                    <Sidebar.MenuButton key={path} href={path} active={active} icon={<Icon size={16} />} tooltip={label}>
-                      <span className="menu-label">{label}</span>
-                      <CaretRight className="menu-tail" size={13} aria-hidden="true" />
-                      {label === '告警' && alertCount > 0 && <Sidebar.MenuBadge>{alertCount > 99 ? '99+' : alertCount}</Sidebar.MenuBadge>}
-                    </Sidebar.MenuButton>
-                  );
-                })}
-              </Sidebar.Menu>
-            </Sidebar.Group>
-          ))}
-        </Sidebar.Content>
-
-        <Sidebar.Footer className="sidebar-footer">
-          <Sidebar.Trigger className="sidebar-collapse" aria-label={open ? '折叠导航' : '展开导航'} />
-        </Sidebar.Footer>
-      </Sidebar>
-
-      <main className="main">
-        <header className="topbar">
-          <div className="topbar-left">
-            <Sidebar.Trigger aria-label="切换导航" />
-            <Breadcrumbs className="breadcrumb">
-              <Breadcrumbs.Link href="/overview" icon={<House size={14} />}>NewNexus</Breadcrumbs.Link>
-              {current && <><Breadcrumbs.Separator /><Breadcrumbs.Current>{current.label}</Breadcrumbs.Current></>}
-            </Breadcrumbs>
-          </div>
-          <div className="topbar-right">
-            <span className="live"><Activity size={15} />实时同步</span>
-            <ThemeSwitcher />
-            <button className="topbar-icon" type="button" aria-label="告警" onClick={() => navigate('/alerts')}>
-              <AlertTriangle size={18} />
-              {alertCount > 0 && <em>{alertCount > 99 ? '99+' : alertCount}</em>}
-            </button>
-            <DropdownMenu>
-              <DropdownMenu.Trigger render={<button className="account" type="button" aria-label="账户菜单" />}>
-                <span className="account-mark">{(auth.username || 'A').slice(0, 1).toUpperCase()}</span>
-                <span className="account-copy"><strong>{auth.username || '管理员'}</strong><small><ShieldCheck size={12} /> {auth.totpEnabled ? 'TOTP 已保护' : 'TOTP 未启用'}</small></span>
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Content align="end">
-                <DropdownMenu.Item icon={<Gear size={16} />} onClick={() => navigate('/settings?tab=security')}>账户安全</DropdownMenu.Item>
-                <DropdownMenu.Separator />
-                <DropdownMenu.Item icon={<LogOut size={16} />} onClick={() => void logout()}>退出登录</DropdownMenu.Item>
-              </DropdownMenu.Content>
-            </DropdownMenu>
-          </div>
-        </header>
-
-        <div className="content">
-          {!auth.totpEnabled && <KumoBanner size="sm" variant="alert" icon={<ShieldCheck />} title="TOTP 尚未启用" description="生产环境请在系统设置中完成二次验证。" action={<KumoButton size="sm" variant="ghost" onClick={() => navigate('/settings?tab=security')}>立即配置</KumoButton>} />}
-          <Suspense fallback={<div className="loading-state">正在载入视图</div>}>
-            <Routes>
-              <Route path="/overview" element={<OverviewPage />} />
-              <Route path="/projects" element={<ProjectsPage />} />
-              <Route path="/saas" element={<SaaSPage />} />
-              <Route path="/optimizer" element={<OptimizerPage />} />
-              <Route path="/routes" element={<RoutesPage />} />
-              <Route path="/nodes" element={<NodesPage />} />
-              <Route path="/releases" element={<ReleasesPage />} />
-              <Route path="/jobs" element={<JobsPage />} />
-              <Route path="/alerts" element={<AlertsPage />} />
-              <Route path="/audit" element={<AuditPage />} />
-              <Route path="/connections" element={<ConnectionsPage />} />
-              <Route path="/settings" element={<SettingsPage auth={auth} />} />
-              <Route path="*" element={<Navigate to="/overview" replace />} />
-            </Routes>
-          </Suspense>
-        </div>
-      </main>
-
-      <CommandPalette.Root
-        open={searchOpen}
-        onOpenChange={setSearchOpen}
-        items={filteredItems}
-        value={search}
-        onValueChange={setSearch}
-        itemToStringValue={(item) => item.title}
-        onSelect={(item) => selectSearchItem(item)}
-      >
-        <CommandPalette.Input placeholder="搜索页面或操作..." />
-        <CommandPalette.List>
-          <CommandPalette.Results>
-            {(item: (typeof items)[number]) => (
-              <CommandPalette.Item key={item.id} value={item} onClick={() => selectSearchItem(item)}>
-                <span className="command-item"><item.Icon size={16} /><span>{item.title}</span><small>{item.group}</small></span>
-              </CommandPalette.Item>
-            )}
-          </CommandPalette.Results>
-          <CommandPalette.Empty>没有匹配结果</CommandPalette.Empty>
-        </CommandPalette.List>
-        <CommandPalette.Footer><span>↑↓ 浏览</span><span>Enter 打开</span><span>Esc 关闭</span></CommandPalette.Footer>
-      </CommandPalette.Root>
-    </Sidebar.Provider>
-  );
+function AppShell({ auth }: { auth: AuthResult }) {
+  const queryClient = useQueryClient(); const location = useLocation(); const navigate = useNavigate(); const [mobileOpen, setMobileOpen] = useState(false); const [connected, setConnected] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('newnexus.sidebar.collapsed') === 'true'; } catch { return false; } });
+  const current = nav.flatMap((group) => group.items).find((item) => location.pathname.startsWith(item.path));
+  useEffect(() => { setMobileOpen(false); }, [location.pathname]);
+  useEffect(() => { try { localStorage.setItem('newnexus.sidebar.collapsed', String(collapsed)); } catch { /* Storage may be blocked. */ } }, [collapsed]);
+  useEffect(() => { const source = new EventSource('/api/v1/events'); source.onopen = () => setConnected(true); source.onerror = () => setConnected(false); const update = () => { void queryClient.invalidateQueries({ predicate: (query) => !['auth', 'bootstrap', 'options'].includes(String(query.queryKey[0])) }); }; source.addEventListener('resource.updated', update); source.addEventListener('update', update); return () => { source.close(); setConnected(false); }; }, [queryClient]);
+  async function logout() { try { await api('/auth/logout', { method: 'POST' }); setCsrfToken(''); queryClient.clear(); navigate('/'); } catch (error) { toast.error(error instanceof Error ? error.message : t("shell.logoutFailed")); } }
+  const navigation = (mobile = false) => <><Link className="brand" to="/overview"><span className="brand-symbol"><Network size={19} /></span><span className="brand-copy"><strong>NewNexus</strong><small>NETWORK CONTROL</small></span></Link><nav className="sidebar-nav" aria-label={mobile ? t("shell.mobileNavigationLabel") : t("shell.navigationLabel")}>{nav.map((group) => <div key={group.label}><div className="nav-group-label">{group.label}</div>{group.items.map((item) => { const content = <NavLink to={item.path} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} aria-label={t(`nav.${item.id}`)}><item.icon size={16} /><span className="nav-text">{t(`nav.${item.id}`)}</span></NavLink>; return collapsed && !mobile ? <Tooltip key={item.id}><TooltipTrigger render={content} /><TooltipContent side="right">{t(`nav.${item.id}`)}</TooltipContent></Tooltip> : <div key={item.id}>{content}</div>; })}</div>)}</nav>{!mobile && <div className="sidebar-bottom"><span className="build-label">{t("shell.selfHosted")}</span><Button variant="ghost" size="icon-sm" aria-label={collapsed ? t("shell.expandNavigation") : t("shell.collapseNavigation")} onClick={() => setCollapsed(!collapsed)}>{collapsed ? <ChevronsRight size={15} /> : <ChevronsLeft size={15} />}</Button></div>}</>;
+  return <div className="app-shell" data-collapsed={collapsed}><aside className="app-sidebar desktop-sidebar">{navigation()}</aside><div className="app-main"><header className="topbar"><div className="topbar-left"><Button className="mobile-only" variant="ghost" size="icon-sm" onClick={() => setMobileOpen(true)} aria-label={t("shell.openNavigation")}><Menu size={18} /></Button><div className="breadcrumb"><span>{t("shell.console")}</span><ChevronRight size={12} /><strong>{t(`nav.${current?.id ?? 'overview'}`)}</strong></div></div><div className="topbar-right"><span className="live-status"><span className={`status-dot ${connected ? 'connected' : ''}`} />{connected ? t("shell.live") : t("shell.waitingConnection")}</span><ThemeToggle /><Button variant="ghost" size="icon-sm" onClick={() => navigate('/alerts')} aria-label={t("shell.alertsLabel")}><Bell size={17} /></Button><DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("shell.accountMenuLabel")} />}><span className="avatar">{auth.user.username.slice(0, 1).toUpperCase()}</span></DropdownMenuTrigger><DropdownMenuContent><DropdownMenuItem disabled>{auth.user.username}</DropdownMenuItem><DropdownMenuItem onClick={() => navigate('/settings?tab=security')}><ShieldCheck />{t("shell.accountSecurity")}</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onClick={() => { void logout(); }}><LogOut />{t("shell.logoutAction")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div></header><main className="content" id="main-content"><Routes><Route path="/overview" element={<OverviewPage />} /><Route path="/projects" element={<ResourceWorkspace title={t("nav.projects")} description={t("workspace.projects.description")} tabs={[['projects', t("tabs.projects")], ['sites', t("tabs.sites")]]} />} /><Route path="/optimizer" element={<ResourceWorkspace title={t("workspace.optimizer.title")} description={t("workspace.optimizer.description")} tabs={[['candidates', t("tabs.candidates")], ['sources', t("tabs.sources")], ['profiles', t("tabs.profiles")], ['optimized', t("tabs.optimized")]]} />} /><Route path="/saas" element={<ResourceWorkspace title={t("nav.saas")} description={t("workspace.saas.description")} tabs={[['hostnames', t("tabs.hostnames")], ['saasZones', t("tabs.saasZones")]]} />} /><Route path="/nodes" element={<ResourceWorkspace title={t("nav.nodes")} description={t("workspace.nodes.description")} tabs={[['nodes', t("tabs.nodes")], ['groups', t("tabs.groups")]]} />} />{['rules', 'connections', 'releases', 'jobs', 'alerts', 'audit'].map((key) => <Route key={key} path={`/${key}`} element={<ResourcePage key={key} resourceKey={key} />} />)}<Route path="/settings" element={<SettingsPage user={auth.user} />} /><Route path="/routes" element={<Navigate to="/rules" replace />} /><Route path="*" element={<Navigate to="/overview" replace />} /></Routes></main></div><Sheet open={mobileOpen} onOpenChange={setMobileOpen}><SheetContent side="left" className="p-0" showCloseButton={false}><SheetHeader className="sr-only"><SheetTitle>{t("shell.navigationLabel")}</SheetTitle><SheetDescription>{t("shell.navigationDescription")}</SheetDescription></SheetHeader><div className="app-sidebar border-0">{navigation(true)}</div></SheetContent></Sheet></div>;
 }
+
+function ThemeToggle() { const { mode, setTheme } = useTheme(); return <div className="theme-toggle" role="radiogroup" aria-label={t("theme.label")}>{([{ value: 'light', label: t("theme.lightLabel"), Icon: Sun }, { value: 'dark', label: t("theme.darkLabel"), Icon: Moon }, { value: 'system', label: t("theme.system"), Icon: Monitor }] as const).map(({ value, label, Icon }) => <button key={value} type="button" role="radio" aria-checked={mode === value} aria-label={label} title={label} onClick={() => setTheme(value)}><Icon size={13} /></button>)}</div>; }
+
+function ResourceWorkspace({ title, description, tabs }: { title: string; description: string; tabs: [string, string][] }) { const [params, setParams] = useSearchParams(); const tab = tabs.some(([key]) => key === params.get('tab')) ? params.get('tab')! : tabs[0][0]; return <div className="stack"><PageHeading title={title} description={description} /><Tabs value={tab} onValueChange={(value) => setParams({ tab: String(value) })}><TabsList className="mb-1">{tabs.map(([key, label]) => <TabsTrigger key={key} value={key}>{label}</TabsTrigger>)}</TabsList></Tabs><ResourcePage key={tab} resourceKey={tab} embedded /></div>; }

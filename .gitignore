@@ -1,21 +1,60 @@
-/.gocache
-/.gomodcache
-/.gopath
-/.tools
-/data
-/output
-/dist/
-/tmp/
-/.playwright-cli
+# Local tools and caches
 /.agent/
+/.cache/
+/.gocache/
+/.gomodcache/
+/.gopath/
+/.tools/
+/.playwright-cli/
+
+# Build, test and temporary output
+/bin/
+/dist/
+/output/
+/tmp/
+/artifacts/
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
+web/*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+__pycache__/
+*.pyc
+
+# Runtime data and database sidecar files
+/data/
+/agent-data/
 *.db
-*.db-shm
-*.db-wal
-/web/node_modules
-/web/dist
-/web/test-results/
-/web/playwright-report/
-/web/*.tsbuildinfo
-/web/vite.config.js
-/web/vite.config.d.ts
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Local environment configuration; keep shareable templates
 .env
+.env.*
+*.env
+!.env.example
+!.env.*.example
+!.env.sample
+!.env.*.sample
+!.env.template
+!.env.*.template
+
+# Local TLS certificates and private keys
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime logs; performance evidence is part of the documentation
+*.log
+!/docs/performance/*.log
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

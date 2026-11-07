@@ -1,50 +1,44 @@
 package security
 
 import (
-	"strings"
+	"bytes"
+	"net/netip"
 	"testing"
 )
 
-func TestPasswordHashAndVerification(t *testing.T) {
-	encoded, err := HashPassword("correct horse battery staple")
-	if err != nil {
-		t.Fatal(err)
+func TestVaultBindsCredentialsToConnection(t *testing.T) {
+	v, e := NewVault(bytes.Repeat([]byte{7}, 32))
+	if e != nil {
+		t.Fatal(e)
 	}
-	if !strings.HasPrefix(encoded, "$argon2id$") {
-		t.Fatalf("unexpected password encoding: %s", encoded)
+	sealed, e := v.Seal([]byte("secret"), "connection:a")
+	if e != nil {
+		t.Fatal(e)
 	}
-	if !VerifyPassword(encoded, "correct horse battery staple") {
-		t.Fatal("correct password was rejected")
+	if _, e = v.Open(sealed, "connection:b"); e == nil {
+		t.Fatal("ciphertext moved between resources")
 	}
-	if VerifyPassword(encoded, "incorrect") {
-		t.Fatal("incorrect password was accepted")
+	plain, e := v.Open(sealed, "connection:a")
+	if e != nil || string(plain) != "secret" {
+		t.Fatal(string(plain), e)
 	}
 }
-
-func TestVaultRoundTripAndTamperDetection(t *testing.T) {
-	vault, err := NewVault([]byte("01234567890123456789012345678901"))
-	if err != nil {
-		t.Fatal(err)
+func TestReservedAndMetadataAddressesBlocked(t *testing.T) {
+	for _, address := range []string{"127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.0.1", "169.254.169.254", "100.100.100.200", "0.0.0.0", "192.0.2.1", "198.18.0.1", "224.0.0.1", "::1", "::ffff:127.0.0.1", "fc00::1", "fe80::1", "2001:db8::1", "64:ff9b::7f00:1"} {
+		if PublicAddress(netip.MustParseAddr(address)) {
+			t.Errorf("allowed %s", address)
+		}
 	}
-	sealed, err := vault.Encrypt(`{"token":"sensitive"}`)
-	if err != nil {
-		t.Fatal(err)
+	for _, address := range []string{"1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"} {
+		if !PublicAddress(netip.MustParseAddr(address)) {
+			t.Errorf("blocked public %s", address)
+		}
 	}
-	plain, err := vault.Decrypt(sealed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if plain != `{"token":"sensitive"}` {
-		t.Fatalf("unexpected plaintext: %s", plain)
-	}
-	position := len(sealed) / 2
-	last := sealed[position]
-	replacement := byte('A')
-	if last == replacement {
-		replacement = 'B'
-	}
-	tampered := sealed[:position] + string(replacement) + sealed[position+1:]
-	if _, err := vault.Decrypt(tampered); err == nil {
-		t.Fatal("tampered ciphertext was accepted")
+}
+func TestProbeURLPolicy(t *testing.T) {
+	for _, value := range []string{"file:///etc/passwd", "http://user:pass@example.com", "https://example.com:65536", "https://localhost/", "http://169.254.169.254/", "//example.com"} {
+		if _, e := ValidateURL(value); e == nil {
+			t.Errorf("allowed %s", value)
+		}
 	}
 }

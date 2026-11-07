@@ -1,0 +1,9 @@
+2026/11/07 00:10:25 INFO timed workload started schema=newnexus_load_df9d554095b059c5 agents=100 candidates=100000 active=10000 rules=1000 replicas=2 duration=1m0s
+2026/11/07 00:10:57 INFO scheduler pass duration_ms=27955 phases_ms="map[candidate_selection:1109 candidates:2133 dispatch:2695 monitor:46 routing:24102 rules:1000 sites:2 tasks:10399]"
+2026/11/07 00:11:04 INFO scheduler pass duration_ms=5690 phases_ms="map[candidate_selection:2637 candidates:2133 dispatch:2576 monitor:173 routing:266 rules:0 sites:37 tasks:6399]"
+2026/11/07 00:11:14 INFO scheduler pass duration_ms=10168 phases_ms="map[candidate_selection:2656 candidates:2133 dispatch:2435 monitor:334 routing:4722 rules:0 sites:18 tasks:6399]"
+2026/11/07 00:11:25 ERROR batch dispatch failed error="batch insert tasks: context canceled"
+2026/11/07 00:11:25 INFO scheduler pass duration_ms=10514 phases_ms="map[candidate_selection:2414 monitor:512 routing:7569 sites:0]"
+2026/11/07 00:11:48 INFO load test report written path=docs/performance/optimized2-100-100k-10k-1000.json received=23197 acked=23197 pending=0 active_within_30s=0 replay_growth=0
+2026/11/07 00:11:48 ERROR load test failed error="one or more production acceptance targets were not met; see the JSON report"
+exit status 1

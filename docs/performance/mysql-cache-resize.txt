@@ -1,0 +1,44 @@
+*************************** 1. row ***************************
+            requested_utc: 2026-11-07 05:00:41.581919
+previous_buffer_pool_size: 134217728
+*************************** 1. row ***************************
+          confirmed_utc: 2026-11-07 05:00:41.582540
+actual_buffer_pool_size: 536870912
+flush_log_at_trx_commit: 1
+            sync_binlog: 1
+                log_bin: 1
+*************************** 1. row ***************************
+Variable_name: Innodb_buffer_pool_pages_free
+        Value: 2149
+*************************** 2. row ***************************
+Variable_name: Innodb_buffer_pool_pages_total
+        Value: 32768
+*************************** 3. row ***************************
+Variable_name: Innodb_buffer_pool_resize_status
+        Value: buffer pool 0 : resizing with chunks 1 to 4.
+*************************** 4. row ***************************
+Variable_name: Innodb_buffer_pool_resize_status_code
+        Value: 5
+*************************** 5. row ***************************
+Variable_name: Innodb_buffer_pool_resize_status_progress
+        Value: 0
+*************************** 1. row ***************************
+           captured_utc: 2026-11-07 05:00:54.715658
+actual_buffer_pool_size: 536870912
+flush_log_at_trx_commit: 1
+            sync_binlog: 1
+*************************** 1. row ***************************
+Variable_name: Innodb_buffer_pool_pages_free
+        Value: 26356
+*************************** 2. row ***************************
+Variable_name: Innodb_buffer_pool_pages_total
+        Value: 32768
+*************************** 3. row ***************************
+Variable_name: Innodb_buffer_pool_resize_status
+        Value: Completed resizing buffer pool at 261107  5:00:41.
+*************************** 4. row ***************************
+Variable_name: Innodb_buffer_pool_resize_status_code
+        Value: 0
+*************************** 5. row ***************************
+Variable_name: Innodb_buffer_pool_resize_status_progress
+        Value: 100

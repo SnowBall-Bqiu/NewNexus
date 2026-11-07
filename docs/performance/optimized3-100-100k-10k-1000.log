@@ -1,0 +1,13 @@
+2026/11/07 00:25:03 INFO timed workload started schema=newnexus_load_1f9d3b4d90ef997c agents=100 candidates=100000 active=10000 rules=1000 replicas=2 duration=1m0s
+2026/11/07 00:25:20 INFO scheduler pass duration_ms=11987 phases_ms="map[candidate_selection:1007 candidates:4266 dispatch:8581 monitor:39 routing:2356 rules:1000 sites:2 tasks:16798]"
+2026/11/07 00:25:30 INFO scheduler pass duration_ms=9597 phases_ms="map[candidate_selection:1320 candidates:4266 dispatch:7765 monitor:36 routing:468 rules:0 sites:5 tasks:12798]"
+2026/11/07 00:25:33 INFO scheduler pass duration_ms=3111 phases_ms="map[candidate_selection:1137 candidates:1468 dispatch:1863 monitor:20 routing:88 rules:0 sites:1 tasks:4404]"
+2026/11/07 00:25:35 INFO scheduler pass duration_ms=2176 phases_ms="map[candidate_selection:2004 candidates:0 dispatch:0 monitor:86 routing:84 rules:0 sites:1 tasks:0]"
+2026/11/07 00:25:39 INFO scheduler pass duration_ms=1306 phases_ms="map[candidate_selection:1207 candidates:0 dispatch:0 monitor:19 routing:77 rules:0 sites:2 tasks:0]"
+2026/11/07 00:25:53 INFO scheduler pass duration_ms=10764 phases_ms="map[candidate_selection:1602 candidates:4266 dispatch:8260 monitor:38 routing:861 rules:1000 sites:1 tasks:16798]"
+2026/11/07 00:25:59 INFO scheduler pass duration_ms=5350 phases_ms="map[candidate_selection:1422 candidates:4266 dispatch:3415 monitor:26 routing:483 rules:0 sites:2 tasks:12798]"
+2026/11/07 00:26:00 INFO scheduler pass duration_ms=1705 phases_ms="map[candidate_selection:1469 candidates:0 dispatch:0 monitor:148 routing:84 rules:0 sites:2 tasks:0]"
+2026/11/07 00:26:03 ERROR job scan failed error="context canceled"
+2026/11/07 00:26:05 INFO load test report written path=docs/performance/optimized3-100-100k-10k-1000.json received=63596 acked=63596 pending=0 active_within_30s=8532 replay_growth=0
+2026/11/07 00:26:06 ERROR load test failed error="one or more production acceptance targets were not met; see the JSON report"
+exit status 1

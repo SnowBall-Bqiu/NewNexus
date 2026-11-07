@@ -2,419 +2,218 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base32"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/newnexus/newnexus/internal/domain"
+	"github.com/newnexus/newnexus/internal/security"
+	"github.com/newnexus/newnexus/internal/store"
+	"golang.org/x/crypto/argon2"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
-
-	"github.com/SnowBall-Bqiu/NewNexus/internal/config"
-	"github.com/SnowBall-Bqiu/NewNexus/internal/domain"
-	"github.com/SnowBall-Bqiu/NewNexus/internal/security"
-	"github.com/SnowBall-Bqiu/NewNexus/internal/store"
-	"github.com/pquerna/otp/totp"
 )
 
-type contextKey string
+var ErrUnauthorized = errors.New("invalid username, password or authentication code")
 
-const adminContextKey contextKey = "admin"
-
-var ErrInvalidAPIKeyInput = errors.New("invalid API key input")
-
-type Manager struct {
-	store *store.Store
-	vault *security.Vault
-	cfg   config.Config
+type Service struct {
+	Store        *store.Store
+	Vault        *security.Vault
+	SecureCookie bool
 }
 
-func NewManager(store *store.Store, vault *security.Vault, cfg config.Config) *Manager {
-	return &Manager{store: store, vault: vault, cfg: cfg}
+func Token() string {
+	b := make([]byte, 32)
+	if _, e := rand.Read(b); e != nil {
+		panic(e)
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }
-
-func (m *Manager) SetupRequired() (bool, error) {
-	var count int64
-	if err := m.store.DB.Model(&domain.Admin{}).Count(&count).Error; err != nil {
-		return false, err
-	}
-	return count == 0, nil
-}
-
-func (m *Manager) Setup(username, password string) (*domain.Admin, error) {
-	admin, _, err := m.SetupWithRecovery(username, password)
-	return admin, err
-}
-
-func (m *Manager) SetupWithRecovery(username, password string) (*domain.Admin, []string, error) {
-	required, err := m.SetupRequired()
-	if err != nil {
-		return nil, nil, err
-	}
-	if !required {
-		return nil, nil, errors.New("administrator is already configured")
-	}
-	username = strings.TrimSpace(username)
-	if len(username) < 3 {
-		return nil, nil, errors.New("username must contain at least 3 characters")
-	}
+func Hash(v string) string { b := sha256.Sum256([]byte(v)); return hex.EncodeToString(b[:]) }
+func PasswordHash(password string) (string, error) {
 	if len(password) < 12 {
-		return nil, nil, errors.New("password must contain at least 12 characters")
+		return "", errors.New("password must be at least 12 characters")
 	}
-	hash, err := security.HashPassword(password)
-	if err != nil {
-		return nil, nil, err
+	salt := make([]byte, 16)
+	if _, e := rand.Read(salt); e != nil {
+		return "", e
 	}
-	codes, hashes, err := newRecoveryCodes()
-	if err != nil {
-		return nil, nil, err
-	}
-	admin := &domain.Admin{Username: username, PasswordHash: hash, RecoveryHashes: strings.Join(hashes, "\n")}
-	if err := m.store.DB.Create(admin).Error; err != nil {
-		return nil, nil, err
-	}
-	return admin, codes, nil
+	hash := argon2.IDKey([]byte(password), salt, 3, 64*1024, 2, 32)
+	return "$argon2id$v=19$m=65536,t=3,p=2$" + base64.RawStdEncoding.EncodeToString(salt) + "$" + base64.RawStdEncoding.EncodeToString(hash), nil
 }
-
-func (m *Manager) Login(username, password, code string) (*domain.Admin, error) {
-	var admin domain.Admin
-	if err := m.store.DB.Where("username = ?", strings.TrimSpace(username)).First(&admin).Error; err != nil {
-		return nil, errors.New("invalid username or password")
-	}
-	if !security.VerifyPassword(admin.PasswordHash, password) {
-		return nil, errors.New("invalid username or password")
-	}
-	if admin.TOTPEnabled {
-		secret, err := m.vault.Decrypt(admin.TOTPSecretEnc)
-		if err != nil {
-			return nil, errors.New("unable to verify TOTP")
-		}
-		if !totp.Validate(strings.TrimSpace(code), secret) {
-			if err := m.UseRecoveryCode(&admin, code); err != nil {
-				return nil, errors.New("invalid verification code")
-			}
-		}
-	}
-	return &admin, nil
-}
-
-func (m *Manager) StartTOTP(admin domain.Admin) (string, string, error) {
-	key, err := totp.Generate(totp.GenerateOpts{Issuer: "NewNexus", AccountName: admin.Username})
-	if err != nil {
-		return "", "", err
-	}
-	encrypted, err := m.vault.Encrypt(key.Secret())
-	if err != nil {
-		return "", "", err
-	}
-	if err := m.store.DB.Model(&domain.Admin{}).Where("id = ?", admin.ID).Update("pending_totp_secret_enc", encrypted).Error; err != nil {
-		return "", "", err
-	}
-	return key.Secret(), key.URL(), nil
-}
-
-func (m *Manager) ConfirmTOTP(admin domain.Admin, code string) error {
-	secretEnc := admin.PendingTOTPSecretEnc
-	if secretEnc == "" && !admin.TOTPEnabled {
-		// Compatibility for a binding started before pending secrets existed.
-		secretEnc = admin.TOTPSecretEnc
-	}
-	if secretEnc == "" {
-		return errors.New("no pending TOTP binding")
-	}
-	secret, err := m.vault.Decrypt(secretEnc)
-	if err != nil {
-		return err
-	}
-	if !totp.Validate(strings.TrimSpace(code), secret) {
-		return errors.New("invalid verification code")
-	}
-	return m.store.DB.Model(&domain.Admin{}).Where("id = ?", admin.ID).Updates(map[string]any{"totp_secret_enc": secretEnc, "pending_totp_secret_enc": "", "totp_enabled": true}).Error
-}
-
-func (m *Manager) DisableTOTP(admin domain.Admin, code string) error {
-	secret, err := m.vault.Decrypt(admin.TOTPSecretEnc)
-	if err != nil || !totp.Validate(strings.TrimSpace(code), secret) {
-		return errors.New("invalid verification code")
-	}
-	admin.TOTPEnabled = false
-	return m.store.DB.Model(&domain.Admin{}).Where("id = ?", admin.ID).Updates(map[string]any{"totp_enabled": false, "totp_secret_enc": "", "pending_totp_secret_enc": ""}).Error
-}
-
-func (m *Manager) CreateSession(w http.ResponseWriter, adminID string) (string, error) {
-	return m.CreateSessionForRequest(w, nil, adminID)
-}
-
-func (m *Manager) CreateSessionForRequest(w http.ResponseWriter, r *http.Request, adminID string) (string, error) {
-	token, err := security.RandomToken(32)
-	if err != nil {
-		return "", err
-	}
-	csrf, err := security.RandomToken(24)
-	if err != nil {
-		return "", err
-	}
-	session := domain.Session{AdminID: adminID, TokenHash: security.HashToken(token), CSRFHash: security.HashToken(csrf), ExpiresAt: time.Now().UTC().Add(30 * 24 * time.Hour), LastSeen: time.Now().UTC()}
-	if r != nil {
-		session.IPAddress = r.RemoteAddr
-		session.UserAgent = r.UserAgent()
-	}
-	if err := m.store.DB.Create(&session).Error; err != nil {
-		return "", err
-	}
-	http.SetCookie(w, &http.Cookie{Name: "newnexus_session", Value: token, Path: "/", HttpOnly: true, Secure: m.cfg.SecureCookies, SameSite: http.SameSiteLaxMode, Expires: session.ExpiresAt})
-	http.SetCookie(w, &http.Cookie{Name: "newnexus_csrf", Value: csrf, Path: "/", HttpOnly: false, Secure: m.cfg.SecureCookies, SameSite: http.SameSiteLaxMode, Expires: session.ExpiresAt})
-	return csrf, nil
-}
-
-func (m *Manager) Logout(w http.ResponseWriter, r *http.Request) {
-	if cookie, err := r.Cookie("newnexus_session"); err == nil {
-		_ = m.store.DB.Model(&domain.Session{}).Where("token_hash = ?", security.HashToken(cookie.Value)).Updates(map[string]any{"revoked_at": time.Now().UTC()}).Error
-	}
-	http.SetCookie(w, &http.Cookie{Name: "newnexus_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: m.cfg.SecureCookies, SameSite: http.SameSiteLaxMode})
-	http.SetCookie(w, &http.Cookie{Name: "newnexus_csrf", Value: "", Path: "/", MaxAge: -1, Secure: m.cfg.SecureCookies, SameSite: http.SameSiteLaxMode})
-}
-
-func (m *Manager) Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if m.cfg.DevAuth {
-			ctx := context.WithValue(r.Context(), adminContextKey, domain.Admin{Username: "dev-admin", TOTPEnabled: false})
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
-		}
-		admin, session, ok := m.authenticate(r)
-		if !ok {
-			writeAuthError(w, http.StatusUnauthorized, "authentication_required", "请先登录")
-			return
-		}
-		if session == nil && !m.apiKeyAllows(r) {
-			writeAuthError(w, http.StatusForbidden, "api_key_scope_denied", "API Key 作用域不允许该操作")
-			return
-		}
-		if session != nil && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-			csrfCookie, err := r.Cookie("newnexus_csrf")
-			csrfHeader := r.Header.Get("X-CSRF-Token")
-			if err != nil || csrfHeader == "" || csrfCookie.Value != csrfHeader || security.HashToken(csrfHeader) != session.CSRFHash {
-				writeAuthError(w, http.StatusForbidden, "csrf_failed", "安全令牌无效，请刷新页面")
-				return
-			}
-		}
-		session.LastSeen = time.Now().UTC()
-		_ = m.store.DB.Model(&session).Update("last_seen", session.LastSeen).Error
-		ctx := context.WithValue(r.Context(), adminContextKey, *admin)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-func (m *Manager) apiKeyAllows(r *http.Request) bool {
-	value := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !strings.HasPrefix(value, "nn_") {
+func PasswordOK(encoded, password string) bool {
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 6 {
 		return false
 	}
-	prefix := value
-	if len(prefix) > 12 {
-		prefix = prefix[:12]
-	}
-	now := time.Now().UTC()
-	var key domain.APIKey
-	if m.store.DB.Where("prefix = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)", prefix, now).First(&key).Error != nil || key.SecretHash != security.HashToken(value) {
+	salt, e := base64.RawStdEncoding.DecodeString(parts[4])
+	if e != nil {
 		return false
 	}
-	action := "write"
-	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
-		action = "read"
+	expected, e := base64.RawStdEncoding.DecodeString(parts[5])
+	if e != nil || len(expected) != 32 {
+		return false
 	}
-	resource := strings.TrimPrefix(r.URL.Path, "/api/v1/")
-	if index := strings.IndexByte(resource, '/'); index >= 0 {
-		resource = resource[:index]
-	}
-	for _, raw := range strings.Split(key.Scopes, ",") {
-		scope := strings.TrimSpace(strings.ToLower(raw))
-		if scope == "*" || scope == "admin" || scope == action || scope == resource+":"+action {
-			return true
-		}
-	}
-	return false
+	got := argon2.IDKey([]byte(password), salt, 3, 64*1024, 2, 32)
+	return subtle.ConstantTimeCompare(expected, got) == 1
 }
-
-func (m *Manager) authenticate(r *http.Request) (*domain.Admin, *domain.Session, bool) {
-	var token string
-	if cookie, err := r.Cookie("newnexus_session"); err == nil {
-		token = cookie.Value
+func (s *Service) Initialized(ctx context.Context) bool { return s.Store.Count(ctx, "admin") > 0 }
+func (s *Service) Bootstrap(ctx context.Context, name, password string) (domain.Doc, error) {
+	owner := "bootstrap-" + domain.ID()
+	ok, e := s.Store.Lease(ctx, "bootstrap", owner, time.Minute)
+	if e != nil || !ok {
+		return nil, errors.New("bootstrap is already in progress")
 	}
-	if token == "" && strings.HasPrefix(r.Header.Get("Authorization"), "Bearer nn_") {
-		value := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		prefix := value
-		if len(prefix) > 12 {
-			prefix = prefix[:12]
+	defer s.Store.ReleaseLease(ctx, "bootstrap", owner)
+	if s.Initialized(ctx) {
+		return nil, errors.New("administrator already exists")
+	}
+	if strings.TrimSpace(name) == "" {
+		return nil, errors.New("username is required")
+	}
+	hash, e := PasswordHash(password)
+	if e != nil {
+		return nil, e
+	}
+	d := domain.Doc{"id": "singleton", "username": name, "password_hash": hash, "totp_enabled": false}
+	e = s.Store.Put(ctx, "admin", d)
+	return d, e
+}
+func (s *Service) Login(ctx context.Context, name, password, code string) (domain.Doc, error) {
+	d, e := s.Store.Get(ctx, "admin", "singleton")
+	if e != nil || domain.S(d, "username") != name || !PasswordOK(domain.S(d, "password_hash"), password) {
+		return nil, ErrUnauthorized
+	}
+	if domain.B(d, "totp_enabled") {
+		secret, e := s.Vault.Open(domain.S(d, "totp_secret"), "admin-totp")
+		if e != nil {
+			return nil, ErrUnauthorized
 		}
-		var key domain.APIKey
-		now := time.Now().UTC()
-		if m.store.DB.Where("prefix = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)", prefix, now).First(&key).Error == nil && key.SecretHash == security.HashToken(value) {
-			_ = m.store.DB.Model(&key).Update("last_used_at", now).Error
-			var admin domain.Admin
-			if m.store.DB.First(&admin, "id = ?", key.AdminID).Error != nil {
-				return nil, nil, false
+		step, ok := VerifyTOTP(string(secret), code, time.Now())
+		if !ok || float64(step) <= domain.N(d, "last_totp_step") {
+			recovery := domain.M(d, "recovery_hashes")
+			if !domain.B(recovery, Hash(code)) {
+				return nil, ErrUnauthorized
 			}
-			return &admin, nil, true
+			delete(recovery, Hash(code))
+			d["recovery_hashes"] = recovery
+		} else {
+			d["last_totp_step"] = step
+		}
+		if e = s.Store.Put(ctx, "admin", d); e != nil {
+			return nil, e
 		}
 	}
-	if token == "" {
-		return nil, nil, false
-	}
-	var session domain.Session
-	if err := m.store.DB.Where("token_hash = ? AND revoked_at IS NULL AND expires_at > ?", security.HashToken(token), time.Now().UTC()).First(&session).Error; err != nil {
-		return nil, nil, false
-	}
-	var admin domain.Admin
-	if err := m.store.DB.First(&admin, "id = ?", session.AdminID).Error; err != nil {
-		return nil, nil, false
-	}
-	return &admin, &session, true
+	return d, nil
 }
-
-func AdminFromContext(ctx context.Context) (domain.Admin, bool) {
-	admin, ok := ctx.Value(adminContextKey).(domain.Admin)
-	return admin, ok
+func (s *Service) NewSession(ctx context.Context, user domain.Doc) (string, domain.Doc, error) {
+	token := Token()
+	d := domain.Doc{"id": Hash(token), "username": user["username"], "csrf_token": Token(), "expires_at": time.Now().UTC().Add(12 * time.Hour).Format(time.RFC3339Nano)}
+	e := s.Store.Put(ctx, "sessions", d)
+	return token, d, e
 }
-
-func writeAuthError(w http.ResponseWriter, status int, code, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message}})
-}
-
-func (m *Manager) Status(r *http.Request) map[string]any {
-	required, _ := m.SetupRequired()
-	if m.cfg.DevAuth {
-		return map[string]any{"setupRequired": false, "authenticated": true, "username": "dev-admin", "totpEnabled": false, "securityWarning": "开发模式已启用，生产环境请配置主密钥并启用 TOTP", "devMode": true}
-	}
-	admin, _, ok := m.authenticate(r)
-	result := map[string]any{"setupRequired": required, "authenticated": ok, "devMode": false}
-	if ok {
-		result["username"] = admin.Username
-		result["totpEnabled"] = admin.TOTPEnabled
-		if !admin.TOTPEnabled {
-			result["securityWarning"] = "尚未启用 TOTP，多因素认证可以降低管理员账户风险"
+func (s *Service) Authenticate(r *http.Request) (domain.Doc, bool, error) {
+	ctx := r.Context()
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		d, e := s.Store.Get(ctx, "api-keys", Hash(strings.TrimPrefix(h, "Bearer ")))
+		if e != nil || domain.B(d, "revoked") {
+			return nil, true, ErrUnauthorized
 		}
+		return d, true, nil
 	}
-	return result
+	cookie, e := r.Cookie("newnexus_session")
+	if e != nil {
+		return nil, false, ErrUnauthorized
+	}
+	d, e := s.Store.Get(ctx, "sessions", Hash(cookie.Value))
+	if e != nil {
+		return nil, false, ErrUnauthorized
+	}
+	expiry, e := time.Parse(time.RFC3339Nano, domain.S(d, "expires_at"))
+	if e != nil || time.Now().After(expiry) {
+		return nil, false, ErrUnauthorized
+	}
+	return d, false, nil
 }
-
-func (m *Manager) String() string { return fmt.Sprintf("auth(dev=%t)", m.cfg.DevAuth) }
-
-func newRecoveryCodes() ([]string, []string, error) {
-	codes := make([]string, 0, 10)
-	hashes := make([]string, 0, 10)
+func (s *Service) SetCookie(w http.ResponseWriter, token string, maxAge int) {
+	http.SetCookie(w, &http.Cookie{Name: "newnexus_session", Value: token, Path: "/", HttpOnly: true, Secure: s.SecureCookie, SameSite: http.SameSiteStrictMode, MaxAge: maxAge})
+}
+func (s *Service) TOTPSetup(ctx context.Context) (domain.Doc, error) {
+	d, e := s.Store.Get(ctx, "admin", "singleton")
+	if e != nil {
+		return nil, e
+	}
+	if domain.B(d, "totp_enabled") {
+		return nil, errors.New("TOTP is already enabled")
+	}
+	b := make([]byte, 20)
+	_, _ = rand.Read(b)
+	secret := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b)
+	sealed, e := s.Vault.Seal([]byte(secret), "admin-totp")
+	if e != nil {
+		return nil, e
+	}
+	d["totp_pending"] = sealed
+	if e = s.Store.Put(ctx, "admin", d); e != nil {
+		return nil, e
+	}
+	return domain.Doc{"secret": secret, "otpauth_url": "otpauth://totp/NewNexus:" + url.PathEscape(domain.S(d, "username")) + "?secret=" + secret + "&issuer=NewNexus&algorithm=SHA1&digits=6&period=30"}, nil
+}
+func (s *Service) TOTPEnable(ctx context.Context, code string) ([]string, error) {
+	d, e := s.Store.Get(ctx, "admin", "singleton")
+	if e != nil {
+		return nil, e
+	}
+	secret, e := s.Vault.Open(domain.S(d, "totp_pending"), "admin-totp")
+	if e != nil {
+		return nil, errors.New("start TOTP setup first")
+	}
+	step, ok := VerifyTOTP(string(secret), code, time.Now())
+	if !ok {
+		return nil, errors.New("TOTP code is invalid")
+	}
+	codes := []string{}
+	hashes := domain.Doc{}
 	for i := 0; i < 10; i++ {
-		code, err := security.RandomToken(9)
-		if err != nil {
-			return nil, nil, err
-		}
-		code = strings.ToUpper(strings.TrimRight(code, "="))
-		codes = append(codes, code)
-		hashes = append(hashes, security.HashToken(code))
+		c := Token()[:16]
+		codes = append(codes, c)
+		hashes[Hash(c)] = true
 	}
-	return codes, hashes, nil
+	d["totp_secret"] = d["totp_pending"]
+	delete(d, "totp_pending")
+	d["totp_enabled"] = true
+	d["last_totp_step"] = step
+	d["recovery_hashes"] = hashes
+	e = s.Store.Put(ctx, "admin", d)
+	return codes, e
 }
-
-func (m *Manager) RegenerateRecoveryCodes(adminID string) ([]string, error) {
-	codes, hashes, err := newRecoveryCodes()
-	if err != nil {
-		return nil, err
+func VerifyTOTP(secret, code string, now time.Time) (int64, bool) {
+	key, e := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ToUpper(secret))
+	if e != nil || len(code) != 6 {
+		return 0, false
 	}
-	if err := m.store.DB.Model(&domain.Admin{}).Where("id = ?", adminID).Update("recovery_hashes", strings.Join(hashes, "\n")).Error; err != nil {
-		return nil, err
-	}
-	return codes, nil
-}
-
-func (m *Manager) UseRecoveryCode(admin *domain.Admin, raw string) error {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || admin == nil {
-		return errors.New("recovery code is required")
-	}
-	hash := security.HashToken(raw)
-	parts := strings.Split(strings.TrimSpace(admin.RecoveryHashes), "\n")
-	remaining := make([]string, 0, len(parts))
-	found := false
-	for _, part := range parts {
-		if part == "" {
-			continue
-		}
-		if part == hash && !found {
-			found = true
-			continue
-		}
-		remaining = append(remaining, part)
-	}
-	if !found {
-		return errors.New("invalid recovery code")
-	}
-	admin.RecoveryHashes = strings.Join(remaining, "\n")
-	return m.store.DB.Model(&domain.Admin{}).Where("id = ?", admin.ID).Update("recovery_hashes", admin.RecoveryHashes).Error
-}
-
-func (m *Manager) RevokeAllSessions(adminID string) error {
-	return m.store.DB.Model(&domain.Session{}).Where("admin_id = ? AND revoked_at IS NULL", adminID).Update("revoked_at", time.Now().UTC()).Error
-}
-
-func (m *Manager) CreateAPIKey(adminID, name, scopes string, expiresAt *time.Time) (domain.APIKey, string, error) {
-	name = strings.TrimSpace(name)
-	if len(name) > 120 {
-		return domain.APIKey{}, "", fmt.Errorf("%w: name exceeds 120 characters", ErrInvalidAPIKeyInput)
-	}
-	if expiresAt != nil {
-		utcExpiry := expiresAt.UTC()
-		if !utcExpiry.After(time.Now().UTC()) {
-			return domain.APIKey{}, "", fmt.Errorf("%w: expiry must be in the future", ErrInvalidAPIKeyInput)
-		}
-		expiresAt = &utcExpiry
-	}
-	scopes, err := normalizeScopes(scopes)
-	if err != nil {
-		return domain.APIKey{}, "", err
-	}
-	secret, err := security.RandomToken(32)
-	if err != nil {
-		return domain.APIKey{}, "", err
-	}
-	value := "nn_" + secret
-	prefix := value
-	if len(prefix) > 12 {
-		prefix = prefix[:12]
-	}
-	key := domain.APIKey{AdminID: adminID, Name: name, Prefix: prefix, SecretHash: security.HashToken(value), Scopes: strings.TrimSpace(scopes), ExpiresAt: expiresAt}
-	if key.Name == "" {
-		key.Name = "API Key"
-	}
-	if err := m.store.DB.Create(&key).Error; err != nil {
-		return domain.APIKey{}, "", err
-	}
-	return key, value, nil
-}
-
-func normalizeScopes(raw string) (string, error) {
-	if len(raw) > 512 {
-		return "", fmt.Errorf("%w: scopes exceed 512 characters", ErrInvalidAPIKeyInput)
-	}
-	if strings.TrimSpace(raw) == "" {
-		return "read", nil
-	}
-	seen := make(map[string]bool)
-	result := make([]string, 0)
-	for _, item := range strings.Split(raw, ",") {
-		if len(result) >= 32 {
-			return "", fmt.Errorf("%w: too many scopes", ErrInvalidAPIKeyInput)
-		}
-		scope := strings.TrimSpace(strings.ToLower(item))
-		valid := scope == "read" || scope == "write" || scope == "admin" || scope == "*" || strings.HasSuffix(scope, ":read") || strings.HasSuffix(scope, ":write")
-		if !valid || strings.ContainsAny(scope, " /\\") {
-			return "", fmt.Errorf("%w: invalid scope %q", ErrInvalidAPIKeyInput, scope)
-		}
-		if !seen[scope] {
-			seen[scope] = true
-			result = append(result, scope)
+	for delta := int64(-1); delta <= 1; delta++ {
+		step := now.Unix()/30 + delta
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], uint64(step))
+		mac := hmac.New(sha1.New, key)
+		mac.Write(b[:])
+		sum := mac.Sum(nil)
+		o := sum[len(sum)-1] & 15
+		n := (uint32(sum[o])&127)<<24 | uint32(sum[o+1])<<16 | uint32(sum[o+2])<<8 | uint32(sum[o+3])
+		want := fmt.Sprintf("%06d", n%1000000)
+		if subtle.ConstantTimeCompare([]byte(want), []byte(code)) == 1 {
+			return step, true
 		}
 	}
-	return strings.Join(result, ","), nil
+	return 0, false
 }

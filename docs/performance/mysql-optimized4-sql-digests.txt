@@ -1,0 +1,525 @@
+*************************** 1. row ***************************
+captured_utc: 2026-11-07 04:44:36.272075
+*************************** 1. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 4491
+   SUM_TIMER_WAIT: 158704865922000
+    total_seconds: 158.705
+    SUM_LOCK_TIME: 0
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: COMMIT
+*************************** 2. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 5
+   SUM_TIMER_WAIT: 11819533336000
+    total_seconds: 11.820
+    SUM_LOCK_TIME: 5000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 253990
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: SELECT COUNT ( * ) FROM `resources` WHERE `kind` = ? AND `NULLIF` ( `JSON_UNQUOTE` ( `JSON_EXTRACT` ( `doc` , ? ) ) , ? ) != ?
+*************************** 3. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 7
+   SUM_TIMER_WAIT: 5923452848000
+    total_seconds: 5.923
+    SUM_LOCK_TIME: 7000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 143939
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: SELECT `node_id_idx` , `NULLIF` ( `JSON_UNQUOTE` ( `JSON_EXTRACT` ( `doc` , ? ) ) , ? ) FROM `resources` WHERE `kind` = ? AND `status_idx` IN (...)
+*************************** 4. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 1212
+   SUM_TIMER_WAIT: 5038535984000
+    total_seconds: 5.039
+    SUM_LOCK_TIME: 1370000000
+     lock_seconds: 0.001
+SUM_ROWS_EXAMINED: 1213
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: SELECT `doc` FROM `resources` WHERE `kind` = ? AND `id` = ?
+*************************** 5. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 1
+   SUM_TIMER_WAIT: 558763381000
+    total_seconds: 0.559
+    SUM_LOCK_TIME: 1000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 50798
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: SELECT COUNT ( * ) FROM `resources` WHERE `kind` = ? AND `NULLIF` ( `JSON_UNQUOTE` ( `JSON_EXTRACT` ( `doc` , ? ) ) , ? ) = ?
+*************************** 6. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 2
+   SUM_TIMER_WAIT: 555470948000
+    total_seconds: 0.555
+    SUM_LOCK_TIME: 22000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: CREATE TABLE IF NOT EXISTS `metrics` ( `id` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `node_id` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `candidate_id` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `observed_at` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `success` INTEGER NOT NULL , `tcp_ms` FLOAT8 NOT NULL , `tls_ms` FLOAT8 NOT NULL , `ttfb_ms` FLOAT8 NOT NULL , `download_bps` FLOAT8 NOT NULL , `sample_count` INTEGER NOT NULL DEFAULT ? , `success_rate` FLOAT8 NOT NULL DEFAULT ? , PRIMARY KEY ( `id` , `observed_at` ) , INDEX `metrics_candidate_time` ( `candidate_id` , `observed_at` ) , INDEX `metrics_time` ( `observed_at` ) ) ENGINE = `InnoDB` PARTITION BY RANGE FIELDS ( `observed_at` ) ( PARTITION `metrics_20261107` VALUES LESS THAN (?) , PARTITION `metrics_20261108` VALUES LESS THAN (?) , PARTITION `metrics_20261109` VALUES LESS THAN (?) , PARTITION `metrics_future` VALUES LESS THAN ( MAXVALUE ) )
+*************************** 7. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 4515
+   SUM_TIMER_WAIT: 368785603000
+    total_seconds: 0.369
+    SUM_LOCK_TIME: 0
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: START TRANSACTION
+*************************** 8. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 5
+   SUM_TIMER_WAIT: 205051857000
+    total_seconds: 0.205
+    SUM_LOCK_TIME: 10000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: SELECT COUNT ( * ) FROM `metrics`
+*************************** 9. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 2
+   SUM_TIMER_WAIT: 158475009000
+    total_seconds: 0.158
+    SUM_LOCK_TIME: 11000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: CREATE TABLE IF NOT EXISTS `resources` ( `kind` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `id` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `doc` JSON NOT NULL , `version` INT8 NOT NULL DEFAULT ? , `created_at` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `updated_at` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `node_id_idx` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` GENERATED ALWAYS AS ( `NULLIF` ( `JSON_UNQUOTE` ( `JSON_EXTRACT` ( `doc` , ? ) ) , ? ) ) STORED , `status_idx` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` GENERATED ALWAYS AS ( `NULLIF` ( `JSON_UNQUOTE` ( `JSON_EXTRACT` ( `doc` , ? ) ) , ? ) ) STORED , `tier_idx` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` GENERATED ALWAYS AS ( `NULLIF` ( `JSON_UNQUOTE` ( `JSON_EXTRACT` ( `doc` , ? ) ) , ? ) ) STORED , `last_scheduled_idx` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` GENERATED ALWAYS AS ( `NULLIF` ( `NULLIF` ( `JSON_UNQUOTE` ( `JSON_EXTRACT` ( `doc` , ? ) ) , ? ) , ? ) ) STORED , `finished_at_idx` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` GENERATED ALWAYS AS ( `NULLIF` ( `NULLIF` ( `JSON_UNQUOTE` ( `JSON_EXTRACT` ( `doc` , ? ) ) , ? ) , ? ) ) STORED , `expires_at_idx` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` GENERATED ALWAYS AS ( `NULLIF` ( `NULLIF` ( `JSON_UNQUOTE` ( `JSON_EXTRACT` ( `doc` , ? ) ) , ? ) , ?
+*************************** 10. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 1
+   SUM_TIMER_WAIT: 108281247000
+    total_seconds: 0.108
+    SUM_LOCK_TIME: 1000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: SELECT COUNT ( * ) FROM `result_ids`
+*************************** 11. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 1
+   SUM_TIMER_WAIT: 95203562000
+    total_seconds: 0.095
+    SUM_LOCK_TIME: 0
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 50798
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: SELECT COUNT ( * ) FROM `resources` WHERE `kind` = ?
+*************************** 12. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 456
+   SUM_TIMER_WAIT: 83789425000
+    total_seconds: 0.084
+    SUM_LOCK_TIME: 0
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: SET `time_zone` = ? , `sql_mode` = ?
+*************************** 13. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 2
+   SUM_TIMER_WAIT: 80557907000
+    total_seconds: 0.081
+    SUM_LOCK_TIME: 16000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: CREATE TABLE IF NOT EXISTS `singleton_locks` ( NAME VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` PRIMARY KEY , OWNER VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `expires_at` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL ) ENGINE = `InnoDB`
+*************************** 14. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 509
+   SUM_TIMER_WAIT: 71688972000
+    total_seconds: 0.072
+    SUM_LOCK_TIME: 0
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: SET NAMES `utf8mb4` COLLATE `utf8mb4_bin`
+*************************** 15. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 2
+   SUM_TIMER_WAIT: 68139692000
+    total_seconds: 0.068
+    SUM_LOCK_TIME: 16000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: CREATE TABLE IF NOT EXISTS `metrics_1h` ( `node_id` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `candidate_id` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `bucket` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `sample_count` INT8 NOT NULL , `success_count` FLOAT8 NOT NULL , `tcp_sum` FLOAT8 NOT NULL , `tls_sum` FLOAT8 NOT NULL , `ttfb_sum` FLOAT8 NOT NULL , `download_sum` FLOAT8 NOT NULL , PRIMARY KEY ( `node_id` , `candidate_id` , `bucket` ) , INDEX `metrics_1h_time` ( `bucket` ) ) ENGINE = `InnoDB`
+*************************** 16. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 2
+   SUM_TIMER_WAIT: 67493737000
+    total_seconds: 0.067
+    SUM_LOCK_TIME: 14000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: CREATE TABLE IF NOT EXISTS `metrics_5m` ( `node_id` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `candidate_id` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `bucket` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `sample_count` INT8 NOT NULL , `success_count` FLOAT8 NOT NULL , `tcp_sum` FLOAT8 NOT NULL , `tls_sum` FLOAT8 NOT NULL , `ttfb_sum` FLOAT8 NOT NULL , `download_sum` FLOAT8 NOT NULL , PRIMARY KEY ( `node_id` , `candidate_id` , `bucket` ) , INDEX `metrics_5m_time` ( `bucket` ) ) ENGINE = `InnoDB`
+*************************** 17. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 2
+   SUM_TIMER_WAIT: 63326437000
+    total_seconds: 0.063
+    SUM_LOCK_TIME: 13000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: CREATE TABLE IF NOT EXISTS `result_ids` ( `id` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` PRIMARY KEY , `node_id` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `observed_at` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , INDEX `result_ids_time` ( `observed_at` ) ) ENGINE = `InnoDB`
+*************************** 18. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 2
+   SUM_TIMER_WAIT: 55020454000
+    total_seconds: 0.055
+    SUM_LOCK_TIME: 34000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: CREATE TABLE IF NOT EXISTS `schema_migrations` ( `version` INTEGER PRIMARY KEY , `applied_at` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL ) ENGINE = `InnoDB`
+*************************** 19. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 2
+   SUM_TIMER_WAIT: 52421083000
+    total_seconds: 0.052
+    SUM_LOCK_TIME: 14000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: CREATE TABLE IF NOT EXISTS `job_leases` ( `id` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` PRIMARY KEY , OWNER VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `expires_at` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL ) ENGINE = `InnoDB`
+*************************** 20. row ***************************
+      SCHEMA_NAME: newnexus_load_5e3b307c92fa4ce8
+       COUNT_STAR: 2
+   SUM_TIMER_WAIT: 50210333000
+    total_seconds: 0.050
+    SUM_LOCK_TIME: 10000000
+     lock_seconds: 0.000
+SUM_ROWS_EXAMINED: 0
+SUM_ROWS_AFFECTED: 0
+SUM_NO_INDEX_USED: 0
+           digest: CREATE TABLE IF NOT EXISTS `idempotency` ( `scope` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `key` VARCHARACTER (?) CHARACTER SET `utf8mb4` COLLATE `utf8mb4_0900_bin` NOT NULL , `request_hash` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , `response` LONGTEXT NOT NULL , `created_at` VARCHARACTER (?) CHARACTER SET ASCII COLLATE `ascii_bin` NOT NULL , PRIMARY KEY ( `scope` , `key` ) ) ENGINE = `InnoDB`
+*************************** 1. row ***************************
+Variable_name: innodb_buffer_pool_size
+        Value: 134217728
+*************************** 2. row ***************************
+Variable_name: innodb_flush_log_at_trx_commit
+        Value: 1
+*************************** 3. row ***************************
+Variable_name: innodb_flush_method
+        Value: O_DIRECT
+*************************** 4. row ***************************
+Variable_name: innodb_io_capacity
+        Value: 10000
+*************************** 5. row ***************************
+Variable_name: innodb_io_capacity_max
+        Value: 20000
+*************************** 6. row ***************************
+Variable_name: innodb_log_buffer_size
+        Value: 67108864
+*************************** 7. row ***************************
+Variable_name: innodb_redo_log_capacity
+        Value: 104857600
+*************************** 8. row ***************************
+Variable_name: log_bin
+        Value: ON
+*************************** 9. row ***************************
+Variable_name: max_connections
+        Value: 151
+*************************** 10. row ***************************
+Variable_name: sync_binlog
+        Value: 1
+*************************** 11. row ***************************
+Variable_name: transaction_isolation
+        Value: REPEATABLE-READ
+*************************** 12. row ***************************
+Variable_name: version
+        Value: 8.4.13
+*************************** 1. row ***************************
+Variable_name: Handler_read_key
+        Value: 4837143
+*************************** 2. row ***************************
+Variable_name: Handler_read_rnd_next
+        Value: 1807444
+*************************** 3. row ***************************
+Variable_name: Innodb_buffer_pool_pages_data
+        Value: 7203
+*************************** 4. row ***************************
+Variable_name: Innodb_buffer_pool_pages_free
+        Value: 989
+*************************** 5. row ***************************
+Variable_name: Innodb_buffer_pool_read_requests
+        Value: 149367343
+*************************** 6. row ***************************
+Variable_name: Innodb_buffer_pool_reads
+        Value: 933042
+*************************** 7. row ***************************
+Variable_name: Innodb_data_fsyncs
+        Value: 317561
+*************************** 8. row ***************************
+Variable_name: Innodb_data_read
+        Value: 17718725120
+*************************** 9. row ***************************
+Variable_name: Innodb_data_reads
+        Value: 1085159
+*************************** 10. row ***************************
+Variable_name: Innodb_data_writes
+        Value: 2772941
+*************************** 11. row ***************************
+Variable_name: Innodb_data_written
+        Value: 29815053824
+*************************** 12. row ***************************
+Variable_name: Innodb_os_log_fsyncs
+        Value: 201675
+*************************** 13. row ***************************
+Variable_name: Innodb_row_lock_current_waits
+        Value: 0
+*************************** 14. row ***************************
+Variable_name: Innodb_row_lock_time
+        Value: 572912
+*************************** 15. row ***************************
+Variable_name: Innodb_row_lock_waits
+        Value: 4240
+*************************** 16. row ***************************
+Variable_name: Threads_connected
+        Value: 1
+*************************** 17. row ***************************
+Variable_name: Threads_running
+        Value: 2
+*************************** 1. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_data_file
+               COUNT_READ: 1081099
+              COUNT_WRITE: 1469830
+               COUNT_MISC: 144165
+             read_seconds: 214.872
+            write_seconds: 55.599
+ SUM_NUMBER_OF_BYTES_READ: 17713086464
+SUM_NUMBER_OF_BYTES_WRITE: 28330983424
+*************************** 2. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_log_file
+               COUNT_READ: 6
+              COUNT_WRITE: 1173947
+               COUNT_MISC: 216939
+             read_seconds: 0.000
+            write_seconds: 8.264
+ SUM_NUMBER_OF_BYTES_READ: 68096
+SUM_NUMBER_OF_BYTES_WRITE: 6151929856
+*************************** 3. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_dblwr_file
+               COUNT_READ: 2
+              COUNT_WRITE: 124513
+               COUNT_MISC: 6
+             read_seconds: 0.008
+            write_seconds: 96.362
+ SUM_NUMBER_OF_BYTES_READ: 16777216
+SUM_NUMBER_OF_BYTES_WRITE: 23658643456
+*************************** 4. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_temp_file
+               COUNT_READ: 3676
+              COUNT_WRITE: 4376
+               COUNT_MISC: 72
+             read_seconds: 0.050
+            write_seconds: 0.204
+ SUM_NUMBER_OF_BYTES_READ: 432652288
+SUM_NUMBER_OF_BYTES_WRITE: 432979968
+*************************** 5. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_tablespace_open_file
+               COUNT_READ: 0
+              COUNT_WRITE: 0
+               COUNT_MISC: 0
+             read_seconds: 0.000
+            write_seconds: 0.000
+ SUM_NUMBER_OF_BYTES_READ: 0
+SUM_NUMBER_OF_BYTES_WRITE: 0
+*************************** 6. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_arch_file
+               COUNT_READ: 0
+              COUNT_WRITE: 0
+               COUNT_MISC: 0
+             read_seconds: 0.000
+            write_seconds: 0.000
+ SUM_NUMBER_OF_BYTES_READ: 0
+SUM_NUMBER_OF_BYTES_WRITE: 0
+*************************** 7. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_clone_file
+               COUNT_READ: 0
+              COUNT_WRITE: 0
+               COUNT_MISC: 0
+             read_seconds: 0.000
+            write_seconds: 0.000
+ SUM_NUMBER_OF_BYTES_READ: 0
+SUM_NUMBER_OF_BYTES_WRITE: 0
+*************************** 8. row ***************************
+               EVENT_NAME: wait/io/file/innodb/meb::redo_log_archive_file
+               COUNT_READ: 0
+              COUNT_WRITE: 0
+               COUNT_MISC: 0
+             read_seconds: 0.000
+            write_seconds: 0.000
+ SUM_NUMBER_OF_BYTES_READ: 0
+SUM_NUMBER_OF_BYTES_WRITE: 0
+
+SUPPLEMENT: DIGEST CAPACITY AND WRITE STATEMENTS
+*************************** 1. row ***************************
+captured_utc: 2026-11-07 04:46:25.881937
+*************************** 1. row ***************************
+Variable_name: innodb_buffer_pool_instances
+        Value: 1
+*************************** 2. row ***************************
+Variable_name: innodb_doublewrite
+        Value: ON
+*************************** 3. row ***************************
+Variable_name: innodb_flush_log_at_timeout
+        Value: 1
+*************************** 4. row ***************************
+Variable_name: max_digest_length
+        Value: 1024
+*************************** 5. row ***************************
+Variable_name: performance_schema_digests_size
+        Value: 10000
+*************************** 6. row ***************************
+Variable_name: performance_schema_max_digest_length
+        Value: 1024
+*************************** 1. row ***************************
+Variable_name: Binlog_cache_disk_use
+        Value: 11423
+*************************** 2. row ***************************
+Variable_name: Binlog_cache_use
+        Value: 86123
+*************************** 3. row ***************************
+Variable_name: Com_commit
+        Value: 27175
+*************************** 4. row ***************************
+Variable_name: Com_insert
+        Value: 67551
+*************************** 5. row ***************************
+Variable_name: Com_rollback
+        Value: 1686
+*************************** 6. row ***************************
+Variable_name: Com_select
+        Value: 127008
+*************************** 7. row ***************************
+Variable_name: Com_update
+        Value: 60853
+*************************** 8. row ***************************
+Variable_name: Performance_schema_digest_lost
+        Value: 0
+*************************** 9. row ***************************
+Variable_name: Uptime
+        Value: 7126
+*************************** 1. row ***************************
+occupied_digest_rows: 5011
+    null_digest_rows: 0
+
+SUPPLEMENT: PREPARED STATEMENT INSTRUMENTATION
+*************************** 1. row ***************************
+   NAME: statement/com/Execute
+ENABLED: YES
+  TIMED: YES
+*************************** 2. row ***************************
+   NAME: statement/com/Prepare
+ENABLED: YES
+  TIMED: YES
+*************************** 3. row ***************************
+   NAME: statement/sql/insert
+ENABLED: YES
+  TIMED: YES
+*************************** 4. row ***************************
+   NAME: statement/sql/select
+ENABLED: YES
+  TIMED: YES
+*************************** 5. row ***************************
+   NAME: statement/sql/update
+ENABLED: YES
+  TIMED: YES
+*************************** 1. row ***************************
+   EVENT_NAME: statement/com/Execute
+   COUNT_STAR: 264324
+total_seconds: 13450.299
+*************************** 2. row ***************************
+   EVENT_NAME: statement/com/Prepare
+   COUNT_STAR: 264121
+total_seconds: 104.191
+*************************** 3. row ***************************
+   EVENT_NAME: statement/sql/insert
+   COUNT_STAR: 3
+total_seconds: 0.078
+*************************** 4. row ***************************
+   EVENT_NAME: statement/sql/select
+   COUNT_STAR: 11149
+total_seconds: 124.778
+*************************** 5. row ***************************
+   EVENT_NAME: statement/sql/update
+   COUNT_STAR: 2
+total_seconds: 0.018
+*************************** 1. row ***************************
+        scope: newnexus_load_ffecb97b6d177da1
+      digests: 30
+   executions: 10984
+total_seconds: 206.386
+*************************** 2. row ***************************
+        scope: newnexus_load_066fffc0f4332700
+      digests: 30
+   executions: 10753
+total_seconds: 184.778
+*************************** 3. row ***************************
+        scope: newnexus_load_5e3b307c92fa4ce8
+      digests: 31
+   executions: 11290
+total_seconds: 184.184
+*************************** 4. row ***************************
+        scope: newnexus_load_78379e185120af34
+      digests: 31
+   executions: 10858
+total_seconds: 181.219
+*************************** 5. row ***************************
+        scope: newnexus_load_681f1899aba17a2e
+      digests: 30
+   executions: 14863
+total_seconds: 181.186
+*************************** 6. row ***************************
+        scope: newnexus_load_4877042aeb56a6ab
+      digests: 31
+   executions: 10853
+total_seconds: 167.937
+*************************** 7. row ***************************
+        scope: <NULL>
+      digests: 429
+   executions: 843
+total_seconds: 113.882
+*************************** 8. row ***************************
+        scope: newnexus_test
+      digests: 79
+   executions: 152
+total_seconds: 18.592
+*************************** 9. row ***************************
+        scope: newnexus_plan_1794023061582977700
+      digests: 20
+   executions: 33
+total_seconds: 8.577
+*************************** 10. row ***************************
+        scope: newnexus_qa_32e657919ccd4dfd92d4efa5ead7d585
+      digests: 15
+   executions: 21
+total_seconds: 5.339

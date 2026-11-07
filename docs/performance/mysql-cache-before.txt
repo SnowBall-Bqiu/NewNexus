@@ -1,0 +1,192 @@
+*************************** 1. row ***************************
+captured_utc: 2026-11-07 05:00:24.463416
+    hostname: f78979163a5a
+     version: 8.4.13
+*************************** 1. row ***************************
+Variable_name: innodb_buffer_pool_chunk_size
+        Value: 134217728
+*************************** 2. row ***************************
+Variable_name: innodb_buffer_pool_instances
+        Value: 1
+*************************** 3. row ***************************
+Variable_name: innodb_buffer_pool_size
+        Value: 134217728
+*************************** 4. row ***************************
+Variable_name: innodb_doublewrite
+        Value: ON
+*************************** 5. row ***************************
+Variable_name: innodb_flush_log_at_trx_commit
+        Value: 1
+*************************** 6. row ***************************
+Variable_name: innodb_flush_method
+        Value: O_DIRECT
+*************************** 7. row ***************************
+Variable_name: log_bin
+        Value: ON
+*************************** 8. row ***************************
+Variable_name: sync_binlog
+        Value: 1
+*************************** 1. row ***************************
+Variable_name: Innodb_buffer_pool_bytes_data
+        Value: 105021440
+*************************** 2. row ***************************
+Variable_name: Innodb_buffer_pool_bytes_dirty
+        Value: 0
+*************************** 3. row ***************************
+Variable_name: Innodb_buffer_pool_pages_data
+        Value: 6410
+*************************** 4. row ***************************
+Variable_name: Innodb_buffer_pool_pages_dirty
+        Value: 0
+*************************** 5. row ***************************
+Variable_name: Innodb_buffer_pool_pages_free
+        Value: 1782
+*************************** 6. row ***************************
+Variable_name: Innodb_buffer_pool_pages_total
+        Value: 8192
+*************************** 7. row ***************************
+Variable_name: Innodb_buffer_pool_read_requests
+        Value: 196162061
+*************************** 8. row ***************************
+Variable_name: Innodb_buffer_pool_reads
+        Value: 1212127
+*************************** 9. row ***************************
+Variable_name: Innodb_buffer_pool_wait_free
+        Value: 329006
+*************************** 10. row ***************************
+Variable_name: Innodb_data_fsyncs
+        Value: 392738
+*************************** 11. row ***************************
+Variable_name: Innodb_data_pending_fsyncs
+        Value: 0
+*************************** 12. row ***************************
+Variable_name: Innodb_data_pending_reads
+        Value: 0
+*************************** 13. row ***************************
+Variable_name: Innodb_data_pending_writes
+        Value: 0
+*************************** 14. row ***************************
+Variable_name: Innodb_data_read
+        Value: 22392195584
+*************************** 15. row ***************************
+Variable_name: Innodb_data_reads
+        Value: 1370405
+*************************** 16. row ***************************
+Variable_name: Innodb_data_writes
+        Value: 3649298
+*************************** 17. row ***************************
+Variable_name: Innodb_data_written
+        Value: 39524480000
+*************************** 18. row ***************************
+Variable_name: Innodb_log_waits
+        Value: 0
+*************************** 19. row ***************************
+Variable_name: Innodb_log_write_requests
+        Value: 44326890
+*************************** 20. row ***************************
+Variable_name: Innodb_log_writes
+        Value: 1526555
+*************************** 21. row ***************************
+Variable_name: Innodb_os_log_fsyncs
+        Value: 244025
+*************************** 22. row ***************************
+Variable_name: Innodb_os_log_written
+        Value: 7345100288
+*************************** 23. row ***************************
+Variable_name: Innodb_row_lock_current_waits
+        Value: 0
+*************************** 24. row ***************************
+Variable_name: Innodb_row_lock_time
+        Value: 799011
+*************************** 25. row ***************************
+Variable_name: Innodb_row_lock_waits
+        Value: 5679
+*************************** 26. row ***************************
+Variable_name: Threads_connected
+        Value: 1
+*************************** 27. row ***************************
+Variable_name: Threads_running
+        Value: 2
+*************************** 28. row ***************************
+Variable_name: Uptime
+        Value: 7965
+*************************** 1. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_data_file
+               COUNT_READ: 1366203
+              COUNT_WRITE: 1943577
+               COUNT_MISC: 179320
+             read_seconds: 279.443
+            write_seconds: 71.060
+             misc_seconds: 1062.499
+ SUM_NUMBER_OF_BYTES_READ: 22384345088
+SUM_NUMBER_OF_BYTES_WRITE: 37165056000
+*************************** 2. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_log_file
+               COUNT_READ: 6
+              COUNT_WRITE: 1535535
+               COUNT_MISC: 264263
+             read_seconds: 0.000
+            write_seconds: 10.802
+             misc_seconds: 934.476
+ SUM_NUMBER_OF_BYTES_READ: 68096
+SUM_NUMBER_OF_BYTES_WRITE: 8150900736
+*************************** 3. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_dblwr_file
+               COUNT_READ: 2
+              COUNT_WRITE: 165421
+               COUNT_MISC: 6
+             read_seconds: 0.008
+            write_seconds: 129.812
+             misc_seconds: 0.000
+ SUM_NUMBER_OF_BYTES_READ: 16777216
+SUM_NUMBER_OF_BYTES_WRITE: 31368200192
+*************************** 4. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_temp_file
+               COUNT_READ: 3676
+              COUNT_WRITE: 4376
+               COUNT_MISC: 72
+             read_seconds: 0.050
+            write_seconds: 0.204
+             misc_seconds: 0.134
+ SUM_NUMBER_OF_BYTES_READ: 432652288
+SUM_NUMBER_OF_BYTES_WRITE: 432979968
+*************************** 5. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_tablespace_open_file
+               COUNT_READ: 0
+              COUNT_WRITE: 0
+               COUNT_MISC: 0
+             read_seconds: 0.000
+            write_seconds: 0.000
+             misc_seconds: 0.000
+ SUM_NUMBER_OF_BYTES_READ: 0
+SUM_NUMBER_OF_BYTES_WRITE: 0
+*************************** 6. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_arch_file
+               COUNT_READ: 0
+              COUNT_WRITE: 0
+               COUNT_MISC: 0
+             read_seconds: 0.000
+            write_seconds: 0.000
+             misc_seconds: 0.000
+ SUM_NUMBER_OF_BYTES_READ: 0
+SUM_NUMBER_OF_BYTES_WRITE: 0
+*************************** 7. row ***************************
+               EVENT_NAME: wait/io/file/innodb/innodb_clone_file
+               COUNT_READ: 0
+              COUNT_WRITE: 0
+               COUNT_MISC: 0
+             read_seconds: 0.000
+            write_seconds: 0.000
+             misc_seconds: 0.000
+ SUM_NUMBER_OF_BYTES_READ: 0
+SUM_NUMBER_OF_BYTES_WRITE: 0
+*************************** 8. row ***************************
+               EVENT_NAME: wait/io/file/innodb/meb::redo_log_archive_file
+               COUNT_READ: 0
+              COUNT_WRITE: 0
+               COUNT_MISC: 0
+             read_seconds: 0.000
+            write_seconds: 0.000
+             misc_seconds: 0.000
+ SUM_NUMBER_OF_BYTES_READ: 0
+SUM_NUMBER_OF_BYTES_WRITE: 0

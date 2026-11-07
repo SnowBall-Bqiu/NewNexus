@@ -1,0 +1,11 @@
+2026/11/07 12:41:39 INFO timed workload started schema=newnexus_load_5e3b307c92fa4ce8 agents=100 candidates=100000 active=10000 rules=1000 replicas=2 duration=1m0s
+2026/11/07 12:41:51 INFO scheduler pass duration_ms=11348 phases_ms="map[candidate_selection:297 candidates:4266 monitor:100 persist:1994 push:259 routing:8231 rules:1000 schedule_timestamps:462 sites:2 tasks:16798]"
+2026/11/07 12:42:02 INFO scheduler pass duration_ms=10242 phases_ms="map[candidate_selection:2395 candidates:4266 monitor:593 persist:4429 push:207 routing:2146 rules:0 schedule_timestamps:424 sites:45 tasks:12798]"
+2026/11/07 12:42:15 INFO scheduler pass duration_ms=11940 phases_ms="map[candidate_selection:3774 candidates:1468 monitor:2644 persist:1139 push:81 routing:4077 rules:0 schedule_timestamps:220 sites:2 tasks:4404]"
+2026/11/07 12:42:18 INFO scheduler pass duration_ms=3062 phases_ms="map[candidate_selection:1762 candidates:0 monitor:1068 persist:0 push:0 routing:215 rules:0 schedule_timestamps:12 sites:3 tasks:0]"
+2026/11/07 12:42:31 INFO scheduler pass duration_ms=7050 phases_ms="map[candidate_selection:321 candidates:4266 monitor:92 persist:3992 push:269 routing:1060 rules:1000 schedule_timestamps:1310 sites:2 tasks:16798]"
+2026/11/07 12:42:39 ERROR job persistence failed job_id=cfe7630d-7fd9-444c-aff9-64dd4c2ec641 error="context canceled"
+2026/11/07 12:42:39 ERROR pending task scan failed error="context canceled"
+2026/11/07 12:42:39 INFO scheduler pass duration_ms=6867 phases_ms=map[monitor:3193]
+2026/11/07 12:43:00 INFO load test report written path=docs/performance/mysql-optimized4-100-100k-10k-1000.json received=50798 acked=50798 pending=0 active_within_30s=8532 replay_growth=0
+2026/11/07 12:43:00 ERROR load test failed error="one or more production acceptance targets were not met; see the JSON report"

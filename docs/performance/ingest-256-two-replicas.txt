@@ -1,0 +1,7 @@
+goos: windows
+goarch: amd64
+pkg: github.com/newnexus/newnexus/internal/agenthub
+cpu: AMD Ryzen 7 7745HX with Radeon Graphics        
+BenchmarkPostgresBatchIngest256-16    	     100	  26058629 ns/op	       256.0 results/op	      9825 results/s
+PASS
+ok  	github.com/newnexus/newnexus/internal/agenthub	7.623s
