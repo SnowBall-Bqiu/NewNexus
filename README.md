@@ -53,6 +53,10 @@ docker compose --profile mysql up -d --build
 
 HTTPS 默认映射到 8443，Agent gRPC TLS 映射到 9443。REST 与 gRPC 都使用证书；反向代理必须支持 HTTP/2 gRPC 长连接和 SSE，参考 [Caddy 配置](deploy/Caddyfile.example)。不要同时启用 sqlite 与 mysql profile。迁移会在服务启动时执行，也可以先执行 `newnexus-server --migrate`。
 
+`NEWNEXUS_TRUSTED_PROXIES` 未设置、留空或仅含空白时，默认信任回环地址 `127.0.0.1/32`、`::1/128`，以及 Docker 常用的六段 172 地址池：`172.17.0.0/16`、`172.18.0.0/16`、`172.19.0.0/16`、`172.20.0.0/14`、`172.24.0.0/14`、`172.28.0.0/14`，合计覆盖 `172.17.0.0` 至 `172.31.255.255`。地址池说明见 [Docker 官方网络文档](https://docs.docker.com/engine/network/#automatic-subnet-allocation)。该默认会信任这些范围内的所有来源，后端端口应只供代理访问。
+
+显式设置为 `none` 可禁用代理信任，忽略 `X-Forwarded-For` 并直接使用连接来源；`none` 不区分大小写，前后空白会被忽略。非空的逗号分隔 IP/CIDR 列表会完全覆盖默认值，需要保留的默认地址也须列入。使用其他 Docker 子网（包括 `192.168.0.0/16`、`10.0.0.0/8` 或 IPv6）时，应显式配置后端实际看到的代理来源。仅可信来源的转发头会用于区分登录限流客户端；应用从右向左跳过可信代理，采用第一个不可信地址。每个客户端五分钟内最多接受十次认证尝试，被拒绝的请求不会延长窗口。
+
 数据库默认使用 InnoDB、`utf8mb4` 和 UTC。已有独立 MySQL 时，由管理员预建专用数据库并授予应用账户该库内 `SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP` 权限，以便启动迁移与指标分区维护；不需要全局管理或创建数据库权限。MySQL 账户、自动备份及 binlog/PITR 由数据库运维独立管理。
 
 Compose 的 InnoDB 缓冲池默认 512 MiB，可通过 `MYSQL_BUFFER_POOL_SIZE` 调整；连接、排序和其他运行开销另需内存。提交持久性保持 `innodb_flush_log_at_trx_commit=1`、`sync_binlog=1`。独立 MySQL 同样应按数据与索引工作集配置缓存，容量验收使用的实际参数记录在 [性能说明](docs/performance.md)。

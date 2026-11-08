@@ -18,6 +18,7 @@ x-control: &control
     NEWNEXUS_ENV: production
     NEWNEXUS_MASTER_KEY: ${NEWNEXUS_MASTER_KEY:?Set NEWNEXUS_MASTER_KEY in .env}
     NEWNEXUS_SETUP_TOKEN: ${NEWNEXUS_SETUP_TOKEN:-}
+    NEWNEXUS_TRUSTED_PROXIES: ${NEWNEXUS_TRUSTED_PROXIES:-}
     NEWNEXUS_TLS_CERT: /tls/fullchain.pem
     NEWNEXUS_TLS_KEY: /tls/privkey.pem
   networks:

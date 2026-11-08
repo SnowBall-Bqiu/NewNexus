@@ -115,8 +115,19 @@ func SafeClient(timeout time.Duration) *http.Client {
 		if len(via) >= 3 {
 			return errors.New("too many redirects")
 		}
-		_, e := ValidateURL(r.URL.String())
-		return e
+		if _, e := ValidateURL(r.URL.String()); e != nil {
+			return e
+		}
+		// HTTP is needed for domain validation, but an encrypted request must
+		// never replay its payload or accept a subscription over plaintext.
+		if r.URL.Scheme != "https" {
+			for _, previous := range via {
+				if previous.URL.Scheme == "https" {
+					return errors.New("HTTPS redirects must not downgrade to HTTP")
+				}
+			}
+		}
+		return nil
 	}}
 }
 func Redact(s string) string {

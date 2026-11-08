@@ -13,7 +13,13 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
+)
+
+const (
+	defaultHelloTimeout = 10 * time.Second
+	maxPendingHellos    = 64
 )
 
 type Hub struct {
@@ -24,9 +30,18 @@ type Hub struct {
 	metricMu        sync.RWMutex
 	metricPrepareMu sync.Mutex
 	metricDays      map[string]bool
+	helloTimeout    time.Duration
+	helloSlots      chan struct{}
 }
 
-func New(s *store.Store) *Hub { return &Hub{Store: s, streams: map[string]chan domain.Doc{}} }
+func New(s *store.Store) *Hub {
+	return &Hub{
+		Store:        s,
+		streams:      map[string]chan domain.Doc{},
+		helloTimeout: defaultHelloTimeout,
+		helloSlots:   make(chan struct{}, maxPendingHellos),
+	}
+}
 func (h *Hub) Enrollment(ctx context.Context, expires time.Duration, name string) (domain.Doc, error) {
 	if expires < time.Minute || expires > 24*time.Hour {
 		expires = time.Hour
@@ -58,19 +73,66 @@ func (h *Hub) authenticate(ctx context.Context, id, credential string) (domain.D
 	}
 	return d, nil
 }
-func (h *Hub) Connect(stream agentproto.AgentService_ConnectServer) error {
-	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
-	hello, e := stream.Recv()
-	if e != nil {
-		return e
+
+// authenticateHello bounds unauthenticated streams across all connections to
+// this Hub. Returning from Connect makes gRPC cancel a blocked Recv; a derived
+// context deadline alone would not interrupt the stream's transport read.
+func (h *Hub) authenticateHello(ctx context.Context, stream agentproto.AgentService_ConnectServer) (string, domain.Doc, error) {
+	select {
+	case <-ctx.Done():
+		return "", nil, status.FromContextError(ctx.Err()).Err()
+	case h.helloSlots <- struct{}{}:
+	default:
+		return "", nil, status.Error(codes.ResourceExhausted, "too many unauthenticated node streams")
+	}
+	// Keep the slot until both authentication and the receive goroutine have
+	// finished. In particular, do not admit a replacement while a timed-out
+	// stream's Recv is still waiting for gRPC to cancel its transport context.
+	var unfinished atomic.Int32
+	unfinished.Store(2)
+	finished := func() {
+		if unfinished.Add(-1) == 0 {
+			<-h.helloSlots
+		}
+	}
+	defer finished()
+	type helloResult struct {
+		frame *structpb.Struct
+		err   error
+	}
+	received := make(chan helloResult, 1)
+	go func() {
+		defer finished()
+		frame, err := stream.Recv()
+		received <- helloResult{frame, err}
+	}()
+	timer := time.NewTimer(h.helloTimeout)
+	defer timer.Stop()
+	var hello *structpb.Struct
+	select {
+	case <-ctx.Done():
+		return "", nil, status.FromContextError(ctx.Err()).Err()
+	case <-timer.C:
+		return "", nil, status.Error(codes.DeadlineExceeded, "node hello deadline exceeded")
+	case result := <-received:
+		if result.err != nil {
+			return "", nil, result.err
+		}
+		hello = result.frame
 	}
 	first := domain.Doc(hello.AsMap())
 	if domain.S(first, "type") != "hello" || domain.N(first, "protocol_version") != 1 {
-		return status.Error(codes.FailedPrecondition, "hello with protocol version 1 is required")
+		return "", nil, status.Error(codes.FailedPrecondition, "hello with protocol version 1 is required")
 	}
 	id := domain.S(first, "node_id")
-	node, e := h.authenticate(ctx, id, domain.S(first, "credential"))
+	node, err := h.authenticate(ctx, id, domain.S(first, "credential"))
+	return id, node, err
+}
+
+func (h *Hub) Connect(stream agentproto.AgentService_ConnectServer) error {
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+	id, node, e := h.authenticateHello(ctx, stream)
 	if e != nil {
 		return e
 	}

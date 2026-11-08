@@ -49,16 +49,19 @@ type Server struct {
 	AgentPublicAddr       string
 	AgentInsecureLoopback bool
 	ConsoleOrigin         string
+	// TrustedProxies defaults to loopback and common Docker bridge ranges.
+	// Only these peers may supply client IPs.
+	TrustedProxies []netip.Prefix
 	// SetupTokenHash is injected by the production entrypoint, never through REST.
 	SetupTokenHash string
 	mu             sync.Mutex
 	listeners      map[chan domain.Doc]bool
-	attempts       map[string][]time.Time
+	loginLimiter   loginLimiter
 }
 
 func New(s *store.Store, v *security.Vault, h *agenthub.Hub, ops Operations) *Server {
 	h.Vault = v
-	return &Server{Store: s, Vault: v, Hub: h, AgentTLS: agenttls.New(s, v), Operations: ops, Auth: &auth.Service{Store: s, Vault: v, SecureCookie: true}, listeners: map[chan domain.Doc]bool{}, attempts: map[string][]time.Time{}}
+	return &Server{Store: s, Vault: v, Hub: h, AgentTLS: agenttls.New(s, v), Operations: ops, Auth: &auth.Service{Store: s, Vault: v, SecureCookie: true}, TrustedProxies: defaultTrustedProxies(), listeners: map[chan domain.Doc]bool{}}
 }
 func write(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -220,22 +223,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, path string) {
 		fail(w, 405, "method_not_allowed", errors.New("use POST"))
 		return
 	}
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	s.mu.Lock()
-	now := time.Now()
-	history := s.attempts[host]
-	fresh := history[:0]
-	for _, at := range history {
-		if now.Sub(at) < 5*time.Minute {
-			fresh = append(fresh, at)
-		}
-	}
-	limited := len(fresh) >= 10
-	s.attempts[host] = append(fresh, now)
-	s.mu.Unlock()
-	if limited {
-		w.Header().Set("Retry-After", "300")
-		fail(w, 429, "rate_limited", errors.New("too many authentication attempts; retry in five minutes"))
+	if allowed, retry := s.allowLogin(s.clientIP(r), time.Now()); !allowed {
+		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(retry.Seconds())))))
+		fail(w, 429, "rate_limited", errors.New("too many authentication attempts; retry later"))
 		return
 	}
 	d, e := body(r)

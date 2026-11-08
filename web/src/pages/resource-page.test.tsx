@@ -91,3 +91,33 @@ describe('node lifecycle actions', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['node-option'] });
   });
 });
+
+it('neutralizes an Agent-controlled version in the downloaded node CSV', async () => {
+  vi.mocked(list).mockResolvedValue({ data: [{ id: 'untrusted-node', name: 'edge,"hk"', version: '=1+1', status: 'online' }], total: 1 } as never);
+  let exported: Blob | undefined;
+  const NativeURL = URL;
+  vi.stubGlobal('URL', class extends NativeURL {
+    static createObjectURL = vi.fn((blob: Blob | MediaSource) => { exported = blob as Blob; return 'blob:node-export'; });
+    static revokeObjectURL = vi.fn();
+  });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  try {
+    const user = userEvent.setup();
+    renderPage('nodes');
+    await screen.findByRole('button', { name: 'edge,"hk" 的操作' });
+    await user.click(screen.getByRole('button', { name: '导出已载入数据' }));
+    expect(exported).toBeDefined();
+    const content = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(exported!);
+    });
+    expect(content).toContain('"edge,""hk"""');
+    expect(content).toContain(',"\t=1+1",');
+    expect(content).not.toContain(',"=1+1",');
+  } finally {
+    click.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});

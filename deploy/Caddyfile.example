@@ -2,6 +2,15 @@
 # The upstream certificate DNS SAN is newnexus.example.com, even over a private network.
 # Ports below match Compose. For deploy/newnexus.env.example with systemd,
 # change REST upstream to 127.0.0.1:8080 and gRPC upstream to 127.0.0.1:9090.
+# For client-IP login limits, unset/empty/whitespace-only NEWNEXUS_TRUSTED_PROXIES trusts:
+# 127.0.0.1/32, ::1/128, and these common Docker 172 pools:
+# 172.17.0.0/16, 172.18.0.0/16, 172.19.0.0/16,
+# 172.20.0.0/14, 172.24.0.0/14, 172.28.0.0/14 (172.17.0.0 through 172.31.255.255).
+# Every source in those ranges is trusted; keep backend access limited to proxies.
+# Explicit none disables trust (case-insensitive; surrounding whitespace ignored).
+# A non-empty comma-separated IP/CIDR list completely replaces the defaults.
+# Other Docker subnets (192.168.0.0/16, 10.0.0.0/8 or IPv6) need explicit configuration
+# using proxy source addresses as actually seen by the backend.
 newnexus.example.com {
   reverse_proxy https://127.0.0.1:8443 {
     transport http {

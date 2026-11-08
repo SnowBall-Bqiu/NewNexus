@@ -166,6 +166,10 @@ func run() error {
 	if e != nil {
 		return e
 	}
+	trustedProxies, e := api.ParseTrustedProxies(os.Getenv("NEWNEXUS_TRUSTED_PROXIES"))
+	if e != nil {
+		return fmt.Errorf("NEWNEXUS_TRUSTED_PROXIES: %w", e)
+	}
 	if e := os.MkdirAll(*dataDir, 0700); e != nil {
 		return e
 	}
@@ -221,6 +225,7 @@ func run() error {
 	server.WebDir = *webDir
 	server.AgentDownloadOrigin = downloadOrigin
 	server.ConsoleOrigin = consoleOrigin
+	server.TrustedProxies = trustedProxies
 	server.AgentDownloadDir = *agentDownloadDir
 	if server.AgentDownloadDir == "" {
 		server.AgentDownloadDir = filepath.Join(*webDir, "agent")
